@@ -1,0 +1,30 @@
+# 油训智安 后端镜像
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# 换阿里云镜像源，加速 apt 下载（兼容新版 Debian DEB822 格式）
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources
+
+# 系统依赖（bcrypt/pg 装配需要）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential libpq-dev curl && rm -rf /var/lib/apt/lists/*
+
+# 先装依赖（利用缓存）
+COPY backend/pyproject.toml ./
+RUN pip install --upgrade pip -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com && \
+    pip install . -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com && \
+    pip install alembic "uvicorn[standard]" -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+
+# 拷贝后端源码与内置权威知识目录
+COPY backend/ ./
+COPY data/knowledge/authoritative_knowledge.json /data/knowledge/authoritative_knowledge.json
+
+EXPOSE 8000
+
+# 由 docker-compose command 覆盖：迁移 + 种子 + 启动
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,0 +1,99 @@
+:root {
+  /* 产教融合主题：专业深青、教育蓝、成长绿、实训沙金 */
+  --ots-primary: #0b6670;
+  --ots-primary-light: #16808a;
+  --ots-primary-dark: #073f49;
+  --ots-education: #2f6fed;
+  --ots-education-soft: #eef4ff;
+  --ots-growth: #3a8d68;
+  --ots-growth-soft: #edf8f2;
+  --ots-practice: #b57a24;
+  --ots-practice-soft: #fff7e8;
+  --ots-role-teacher: #2f6fed;
+  --ots-role-student: #3a8d68;
+  --ots-state-focus: #b57a24;
+  --ots-accent: #2f6fed;
+  --ots-success: #3a8d68;
+  --ots-warning: #c47a16;
+  --ots-danger: #c2413b;
+  --ots-bg: #f3f6f5;
+  --ots-bg-panel: #ffffff;
+  --ots-bg-subtle: #f8faf9;
+  --ots-text: #203332;
+  --ots-text-secondary: #617371;
+  --ots-border: #dfe8e6;
+  --ots-border-strong: #cbd9d6;
+  --ots-shadow: 0 6px 20px rgba(18, 59, 57, 0.06);
+  --ots-shadow-hover: 0 10px 26px rgba(18, 59, 57, 0.11);
+  --ots-radius: 12px;
+  --ots-safety-bg: #fff7ea;
+  --ots-safety-border: #d79a3a;
+
+  --el-color-primary: var(--ots-primary);
+  --el-color-success: var(--ots-success);
+  --el-color-warning: var(--ots-warning);
+  --el-color-danger: var(--ots-danger);
+  --el-border-radius-base: 8px;
+  --el-border-color: var(--ots-border);
+  --el-fill-color-light: #f5f8f7;
+  --el-bg-color-page: var(--ots-bg);
+  --el-text-color-primary: var(--ots-text);
+  --el-text-color-regular: #455957;
+  --el-text-color-secondary: var(--ots-text-secondary);
+}
+
+* { box-sizing: border-box; }
+
+html,
+body {
+  background: var(--ots-bg);
+  color: var(--ots-text);
+  font-family: 'Microsoft YaHei', 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--ots-primary); text-decoration: none; }
+
+.ots-page { padding: 20px 24px 28px; }
+
+.ots-card {
+  background: var(--ots-bg-panel);
+  border: 1px solid rgba(203, 217, 214, 0.78);
+  border-radius: var(--ots-radius);
+  box-shadow: var(--ots-shadow);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.ots-title { font-size: 18px; font-weight: 600; color: var(--ots-text); margin: 0 0 12px; }
+
+.ots-safety-banner {
+  background: var(--ots-safety-bg);
+  border: 1px solid var(--ots-safety-border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #815315;
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+
+.text-secondary { color: var(--ots-text-secondary); }
+
+.el-button { font-weight: 500; }
+.el-button--primary {
+  --el-button-bg-color: var(--ots-primary);
+  --el-button-border-color: var(--ots-primary);
+  --el-button-hover-bg-color: var(--ots-primary-light);
+  --el-button-hover-border-color: var(--ots-primary-light);
+}
+.el-input__wrapper,.el-select__wrapper,.el-textarea__inner { transition: border-color .2s, box-shadow .2s; }
+.el-input__wrapper:hover,.el-select__wrapper:hover,.el-textarea__inner:hover { box-shadow: 0 0 0 1px var(--ots-border-strong) inset; }
+.el-table { --el-table-header-bg-color: #f6f9f8; --el-table-row-hover-bg-color: #f4faf8; }
+.el-drawer { --el-drawer-bg-color: #f8faf9; }
+
+@media (max-width: 768px) {
+  .ots-page { padding: 16px 14px 24px; }
+  .ots-card { padding: 16px; }
+}

@@ -1,0 +1,88 @@
+# 油训智安 OilTrainSafe — 全栈编排
+# 启动：docker-compose up -d
+# 注：本机 docker-compose(standalone) 可用；如使用 docker compose 插件亦可。
+name: oil-train-safe
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ots-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PG_USER:-oiltrain}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-oiltrain123}
+      POSTGRES_DB: ${PG_DB:-oiltrain}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-oiltrain} -d ${PG_DB:-oiltrain}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:v1.11.3
+    container_name: ots-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ': > /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: ots-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${PG_USER:-oiltrain}:${PG_PASSWORD:-oiltrain123}@postgres:5432/${PG_DB:-oiltrain}
+      QDRANT_URL: http://qdrant:6333
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head &&
+             python -m app.seed &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../docker/Dockerfile.frontend
+    container_name: ots-frontend
+    restart: unless-stopped
+    volumes:
+      - ./docker/nginx-frontend.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: ots-nginx
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  postgres-data:
+  qdrant-data:

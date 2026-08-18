@@ -1,0 +1,110 @@
+# ===== Secrets / Env =====
+.env
+.env.local
+.env.*.local
+!.env.example
+**/.env
+!**/.env.example
+
+# ===== API Keys =====
+*.pem
+*.key
+secrets/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual envs
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# ===== Node / Frontend =====
+node_modules/
+frontend/dist/
+frontend/node_modules/
+*.local
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ===== IDE =====
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== Docker / Runtime =====
+docker/data/
+postgres-data/
+qdrant-data/
+*.log
+logs/
+
+# ===== Build artifacts =====
+backend/app/frontend/dist/
+
+# ===== SQLite (dev/test) =====
+*.db
+*.db-journal
+
+# ===== Temp / Output =====
+tmp/
+output/
+
+# ===== Uploaded files =====
+uploads/
+backend/uploads/
+
+# ===== Codex =====
+.codex/
+
+# ===== Test results =====
+pytest_result.txt
+
+# ===== Local dev scripts =====
+start_all.bat
+run_backend.bat
+run_frontend.bat
+backend/start_dev.bat
+frontend/start_dev.bat
