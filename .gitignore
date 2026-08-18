@@ -102,6 +102,9 @@ backend/uploads/
 # ===== Test results =====
 pytest_result.txt
 
+# ===== Prompt (dev notes) =====
+prompt/
+
 # ===== Local dev scripts =====
 start_all.bat
 run_backend.bat
