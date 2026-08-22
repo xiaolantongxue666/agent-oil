@@ -78,6 +78,8 @@ desktop.ini
 docker/data/
 postgres-data/
 qdrant-data/
+deploy.env
+agent-oil-images-*.tar
 *.log
 logs/
 

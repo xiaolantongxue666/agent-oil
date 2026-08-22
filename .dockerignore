@@ -1,6 +1,9 @@
 .git
 .idea
 .vscode
+.env
+deploy.env
+agent-oil-images-*.tar
 .venv
 backend/.venv
 frontend/node_modules

@@ -1,0 +1,29 @@
+services:
+  postgres:
+    mem_limit: 320m
+    ports: !reset []
+
+  qdrant:
+    mem_limit: 512m
+    ports: !reset []
+
+  backend:
+    image: agent-oil-backend:v1
+    build: !reset null
+    mem_limit: 512m
+    ports: !reset []
+    volumes:
+      - uploads-data:/app/uploads
+
+  frontend:
+    image: agent-oil-frontend:v1
+    build: !reset null
+    mem_limit: 48m
+
+  nginx:
+    mem_limit: 48m
+    ports: !override
+      - "80:80"
+
+volumes:
+  uploads-data:
