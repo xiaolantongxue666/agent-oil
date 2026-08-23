@@ -1,38 +1,19 @@
 <script setup lang="ts">
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ref, nextTick, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { marked } from 'marked'
 import { chatApi, chatStream, knowledgeApi, type ChatStreamMeta } from '@/api'
+import MarkdownContent from '@/components/MarkdownContent.vue'
 import type { AssistantCardOut, ChatSessionOut, CitationOut, KnowledgeChunkDetailOut, KnowledgeItemOut } from '@/types'
+import { renderSafeMarkdown as renderMd } from '@/utils/safeMarkdown'
 
-// 配置 marked
-marked.setOptions({
-  breaks: true,
-  gfm: true,
+const props = withDefaults(defineProps<{
+  compact?: boolean
+  assistantTitle?: string
+}>(), {
+  compact: false,
+  assistantTitle: '智能学习助手',
 })
-
-function renderMd(text: string): string {
-  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const document = new DOMParser().parseFromString(marked.parse(escaped) as string, 'text/html')
-  const allowedTags = new Set(['A', 'BLOCKQUOTE', 'BR', 'CODE', 'EM', 'H1', 'H2', 'H3', 'H4', 'HR', 'LI', 'OL', 'P', 'PRE', 'STRONG', 'TABLE', 'TBODY', 'TD', 'TH', 'THEAD', 'TR', 'UL'])
-  const allowedHref = /^(https?:|mailto:|\/|#)/i
-  for (const element of Array.from(document.body.querySelectorAll('*'))) {
-    if (!allowedTags.has(element.tagName)) {
-      element.replaceWith(document.createTextNode(element.textContent || ''))
-      continue
-    }
-    for (const attribute of Array.from(element.attributes)) {
-      if (element.tagName !== 'A' || attribute.name.toLowerCase() !== 'href' || !allowedHref.test(attribute.value)) {
-        element.removeAttribute(attribute.name)
-      }
-    }
-    if (element.tagName === 'A') {
-      element.setAttribute('rel', 'noopener noreferrer')
-      element.setAttribute('target', '_blank')
-    }
-  }
-  return document.body.innerHTML
-}
 
 const intentLabels: Record<string, string> = {
   knowledge_qa: '专业知识问答', ability_diagnosis: '能力诊断', adaptive_learning: '自适应学习',
@@ -74,6 +55,7 @@ let generationSequence = 0
 const sessions = ref<ChatSessionOut[]>([])
 const loadingSessions = ref(false)
 const activeSessionId = ref<number | undefined>(undefined)
+const deletingSessionId = ref<number | undefined>(undefined)
 
 async function scrollToBottom() {
   await nextTick()
@@ -118,6 +100,39 @@ function newChat() {
   input.value = ''
 }
 
+async function deleteSession(session: ChatSessionOut) {
+  if (sending.value && currentSessionId.value === session.id) {
+    ElMessage.warning('请先停止当前回答，再删除该对话。')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `删除“${session.title || '未命名对话'}”及其中的全部消息？此操作不可恢复。`,
+      '删除对话',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+
+  deletingSessionId.value = session.id
+  try {
+    await chatApi.deleteSession(session.id)
+    sessions.value = sessions.value.filter((item) => item.id !== session.id)
+    if (currentSessionId.value === session.id) {
+      cancelActiveStream(false)
+      messages.value = []
+      currentSessionId.value = undefined
+      activeSessionId.value = undefined
+    }
+    ElMessage.success('对话已删除')
+  } catch {
+    ElMessage.error('删除对话失败，请稍后重试。')
+  } finally {
+    deletingSessionId.value = undefined
+  }
+}
+
 async function sendMessage() {
   const text = input.value.trim()
   if (!text || sending.value) return
@@ -133,7 +148,7 @@ async function sendMessage() {
     content: '',
     thinking: true,
     streaming: true,
-    statusText: '正在连接学习助手...',
+    statusText: `正在连接${props.assistantTitle}...`,
   }
   messages.value.push(assistantMsg)
   await scrollToBottom()
@@ -309,7 +324,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="ots-page qa-page">
+  <div class="ots-page qa-page" :class="{ 'qa-page--compact': props.compact }">
     <div class="qa-layout">
       <!-- 左侧：聊天历史 -->
       <div class="session-sidebar">
@@ -328,7 +343,20 @@ onMounted(() => {
             :class="{ active: activeSessionId === sess.id }"
             @click="loadSession(sess)"
           >
-            <div class="session-title">{{ sess.title }}</div>
+            <div class="session-title-row">
+              <div class="session-title">{{ sess.title }}</div>
+              <el-button
+                class="session-delete"
+                text
+                type="danger"
+                size="small"
+                circle
+                title="删除对话"
+                aria-label="删除对话"
+                :loading="deletingSessionId === sess.id"
+                @click.stop="deleteSession(sess)"
+              ><el-icon><Delete /></el-icon></el-button>
+            </div>
             <div class="session-meta text-secondary">
               <span>
                 <el-tag size="small" :type="sess.owner_role === 'teacher' ? 'warning' : 'success'" effect="plain">
@@ -346,7 +374,7 @@ onMounted(() => {
       <div class="qa-main">
         <div class="ots-card qa-header">
           <div class="qa-title-row">
-            <h2 class="ots-title" style="margin: 0">智能学习助手</h2>
+            <h2 v-if="!props.compact" class="ots-title" style="margin: 0">{{ props.assistantTitle }}</h2>
             <el-tag type="warning" effect="dark">AI 生成内容</el-tag>
           </div>
           <p class="text-secondary" style="margin: 0">
@@ -377,7 +405,7 @@ onMounted(() => {
             <div class="msg-avatar">{{ msg.role === 'user' ? '🧑‍🎓' : '📚' }}</div>
             <div class="msg-body">
               <div class="msg-role">
-                {{ msg.role === 'user' ? '我的问题' : '学习助手' }}
+                {{ msg.role === 'user' ? '我的问题' : props.assistantTitle }}
                 <el-tag v-if="msg.role === 'assistant'" size="small" type="warning" effect="plain">AI 生成</el-tag>
               </div>
               <div v-if="msg.role === 'assistant' && msg.thinking" class="msg-content typing">
@@ -507,7 +535,7 @@ onMounted(() => {
           <div v-if="citationChunk.heading_path || citationChunk.chapter" class="cite-dialog-heading">
             📑 {{ citationChunk.heading_path || citationChunk.chapter }}
           </div>
-          <div class="cite-dialog-content" v-text="citationChunk.content" />
+          <MarkdownContent class="cite-dialog-content" :content="citationChunk.content" />
           <div class="cite-dialog-note text-secondary">
             以上为检索命中的知识块原文（教学模拟/脱敏摘录），正式引用请自行核验原始出处。
           </div>
@@ -522,7 +550,7 @@ onMounted(() => {
               教学环境引用
             </el-tag>
           </div>
-          <div class="cite-dialog-content" v-text="citationDetail.content" />
+          <MarkdownContent class="cite-dialog-content" :content="citationDetail.content" />
           <div class="cite-dialog-note text-secondary">
             以上为知识库中的教学模拟/脱敏摘录，正式引用请自行核验原始出处。
           </div>
@@ -545,6 +573,15 @@ onMounted(() => {
   flex: 1;
   min-height: 0;
 }
+.qa-page--compact {
+  height: 620px;
+  min-height: 0;
+  padding: 0;
+}
+.qa-page--compact .session-sidebar { width: 200px; }
+.qa-page--compact .qa-header { padding: 12px 14px; }
+.qa-page--compact .chat-area { padding: 12px; }
+.qa-page--compact .input-area { padding: 12px; }
 
 /* ---- 左侧历史栏 ---- */
 .session-sidebar {
@@ -593,12 +630,17 @@ onMounted(() => {
   border-left: 3px solid var(--ots-primary);
 }
 .session-title {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.session-title-row { display: flex; align-items: center; gap: 4px; }
+.session-delete { flex: 0 0 auto; opacity: 0; }
+.session-item:hover .session-delete, .session-item.active .session-delete { opacity: 1; }
 .session-meta {
   display: flex;
   justify-content: space-between;
@@ -861,5 +903,11 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-top: 8px;
+}
+
+@media (max-width: 768px) {
+  .qa-page--compact { height: calc(100vh - 112px); }
+  .qa-page--compact .session-sidebar { width: 150px; }
+  .qa-page--compact .session-meta span:nth-child(2), .qa-page--compact .session-meta span:nth-child(3) { display: none; }
 }
 </style>

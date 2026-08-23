@@ -522,4 +522,25 @@ async def get_session(session_id: int, user: CurrentUser, session: DBSession) ->
     return ok(out)
 
 
+@router.delete("/sessions/{session_id}", summary="删除我的问答会话")
+async def delete_session(session_id: int, user: CurrentUser, session: DBSession) -> dict:
+    """删除当前用户、当前角色所属的会话及其全部消息。"""
+
+    await enforce_feature(session, user, "assistant", write=True)
+    uid = int(user["user_id"])
+    role = user.get("role", "student")
+    stmt = select(ChatSession).where(
+        ChatSession.id == session_id,
+        ChatSession.user_id == uid,
+        ChatSession.owner_role == role,
+    )
+    sess = (await session.execute(stmt)).scalar_one_or_none()
+    if not sess:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
+
+    await session.delete(sess)
+    await session.commit()
+    return ok({"id": session_id})
+
+
 __all__ = ["router"]

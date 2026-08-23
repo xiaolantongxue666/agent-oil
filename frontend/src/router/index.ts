@@ -27,6 +27,7 @@ const teacherChildren: RouteRecordRaw[] = [
   { path: 'tasks', name: 'teacher-tasks', component: () => import('@/views/teacher/TaskManageView.vue'), meta: { title: '任务管理' } },
   { path: 'tasks/:id/questions', name: 'teacher-question-bank', component: () => import('@/views/teacher/QuestionBankView.vue'), meta: { title: 'AI 题库生成与审核' } },
   { path: 'positions', name: 'teacher-positions', component: () => import('@/views/teacher/PositionManageView.vue'), meta: { title: '岗位图谱配置' } },
+  { path: 'ability-graph', name: 'teacher-ability-graph', component: () => import('@/views/AbilityGraphView.vue'), meta: { title: '岗位能力图谱' } },
   { path: 'training-results', name: 'teacher-training-results', component: () => import('@/views/teacher/TrainingResultsView.vue'), meta: { title: '班级教学实施复盘' } },
   { path: 'programs', name: 'teacher-programs', component: () => import('@/views/teacher/ProgramManageView.vue'), meta: { title: '产业岗位与培养方案' } },
   { path: 'knowledge', name: 'teacher-knowledge', component: () => import('@/views/teacher/KnowledgeManageView.vue'), meta: { title: '知识库管理' } },

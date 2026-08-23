@@ -170,6 +170,11 @@ export const chatApi = {
       method: 'get',
       url: `/chat/sessions/${sessionId}`,
     }),
+  deleteSession: (sessionId: number) =>
+    request<{ id: number }>({
+      method: 'delete',
+      url: `/chat/sessions/${sessionId}`,
+    }),
 }
 
 // ---- Chat 流式输出 (SSE) ----
@@ -351,6 +356,11 @@ export const knowledgeApi = {
     request<KnowledgeChunkDetailOut>({ method: 'get', url: `/knowledge/chunks/${chunkId}` }),
   chunks: (itemId: number) =>
     request<KnowledgeChunkListOut>({ method: 'get', url: `/knowledge/items/${itemId}/chunks` }),
+  normalizeHtmlTables: (itemId: number) =>
+    request<{
+      changed: boolean; message?: string; chunk_count?: number
+      enabled_chunk_count?: number; vector_points?: number; review_required?: boolean
+    }>({ method: 'post', url: `/knowledge/items/${itemId}/normalize-html-tables`, timeout: 120000 }),
   updateChunk: (chunkId: number, data: { enabled?: boolean; knowledge_point_id?: number | null }) =>
     request<{ chunk: KnowledgeChunkOut; vector_points: number }>({
       method: 'patch',
@@ -367,6 +377,7 @@ export const knowledgeApi = {
       file_name: string; file_type: string; file_size: number
       text_length: number; page_count: number; vector_points: number
       chunk_count: number; enabled_chunk_count: number; disabled_chunk_count: number
+      chunk_abilities: string[]
     }>({
       method: 'post',
       url: '/knowledge/upload',

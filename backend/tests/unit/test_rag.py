@@ -17,7 +17,7 @@ from app.rag.citation import (
     normalize_citations,
     strip_model_citation_section,
 )
-from app.rag.cleaner import clean_text
+from app.rag.cleaner import clean_markdown, clean_text, markdown_to_search_text
 from app.rag.embedding import EmbeddingService
 from app.rag.pipeline import get_pipeline, reset_pipeline
 from app.rag.reranker import RerankerService
@@ -35,6 +35,27 @@ def test_clean_removes_page_numbers():
 
 def test_clean_collapses_whitespace():
     assert clean_text("a   b\t\tc\n\n\n\nd") == "a b c\n\nd"
+
+
+def test_clean_markdown_preserves_indentation_and_code_fences():
+    text = "# 阀门检查\r\n\r\n  - 外观检查\r\n    - 法兰\r\n\r\n```python\r\n  check()\r\n```\r\n"
+    cleaned = clean_markdown(text)
+    assert "  - 外观检查" in cleaned
+    assert "    - 法兰" in cleaned
+    assert "  check()" in cleaned
+    assert "\r" not in cleaned
+
+
+def test_clean_markdown_preserves_first_line_indentation():
+    assert clean_markdown("    代码首行\n下一行\n") == "    代码首行\n下一行"
+
+
+def test_markdown_search_text_removes_markup_but_keeps_table_values():
+    text = "# 阀门检查\n\n- 检查法兰\n\n| 参数 | 范围 |\n| --- | --- |\n| 压力 | 0.2MPa |"
+    search_text = markdown_to_search_text(text)
+    assert "#" not in search_text
+    assert "检查法兰" in search_text
+    assert "压力 0.2MPa" in search_text
 
 
 # ---------- 分块 ----------

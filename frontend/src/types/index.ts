@@ -688,6 +688,8 @@ export interface KnowledgeItemOut {
   knowledge_id: string
   title: string
   ability: string
+  /** 文件由已映射分块汇总；普通条目为自身能力维度。 */
+  chunk_abilities: string[]
   knowledge_point: string
   difficulty: number
   content: string

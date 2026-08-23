@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import cjuLogo from '@/assets/cju-logo.png'
+
 withDefaults(defineProps<{
   subtitle: string
   inverted?: boolean
@@ -12,7 +14,7 @@ withDefaults(defineProps<{
 <template>
   <div class="brand-lockup" :class="{ inverted, large }">
     <span class="brand-symbol" aria-hidden="true">
-      <el-icon><School /></el-icon>
+      <img :src="cjuLogo" alt="" />
       <i />
     </span>
     <span class="brand-copy">
@@ -25,6 +27,7 @@ withDefaults(defineProps<{
 <style scoped>
 .brand-lockup { display: flex; align-items: center; gap: 12px; min-width: 0; color: var(--ots-primary-dark); }
 .brand-symbol { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--ots-border-strong); border-radius: 12px; background: #edf6f6; color: var(--ots-primary); font-size: 22px; flex: 0 0 auto; }
+.brand-symbol img { width: 34px; height: 34px; border-radius: 50%; object-fit: contain; }
 .brand-symbol i { position: absolute; right: -2px; bottom: -2px; width: 10px; height: 10px; border: 2px solid #fff; border-radius: 50%; background: var(--ots-growth); }
 .brand-copy { display: block; min-width: 0; }
 .brand-copy strong,.brand-copy small { display: block; }
@@ -36,6 +39,7 @@ withDefaults(defineProps<{
 .inverted .brand-symbol i { border-color: #0b5963; background: #8adeb3; }
 .large { gap: 15px; }
 .large .brand-symbol { width: 52px; height: 52px; border-radius: 15px; font-size: 27px; }
+.large .brand-symbol img { width: 44px; height: 44px; }
 .large .brand-copy strong { font-size: 25px; letter-spacing: 2px; }
 .large .brand-copy small { margin-top: 5px; font-size: 12px; }
 

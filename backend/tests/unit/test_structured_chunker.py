@@ -130,6 +130,24 @@ def test_single_page_source_has_no_page_metadata():
     assert all(chunk.page_start is None and chunk.page_end is None for chunk in chunks)
 
 
+def test_markdown_body_preserves_nested_list_and_code_without_repeating_heading():
+    text = """# 阀门检查
+
+- 检查阀杆
+  - 检查密封填料
+
+```text
+  禁止带压拆卸
+```
+"""
+    chunks = split_structured_text(text)
+    assert len(chunks) == 1
+    assert chunks[0].heading == "阀门检查"
+    assert not chunks[0].content.startswith("# 阀门检查")
+    assert "  - 检查密封填料" in chunks[0].content
+    assert "  禁止带压拆卸" in chunks[0].content
+
+
 def test_multi_page_source_keeps_page_metadata():
     table_page = "【表格】\n| 参数 | 范围 |\n| --- | --- |\n| 压力 | 0.2MPa |"
     chunks = split_structured_text(

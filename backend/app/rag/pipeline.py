@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from app.core.config import get_settings
 from app.core.logging import logger
 from app.rag.citation import build_citation
+from app.rag.cleaner import markdown_to_search_text
 from app.rag.embedding import get_embedding_service
 from app.rag.reranker import get_reranker
 from app.rag.store import InMemoryStore, get_vector_store, reset_vector_store, set_vector_store
@@ -175,41 +176,52 @@ class RAGPipeline:
             item.vector_embedded = False
             item.qdrant_point_id = None
             return 0
-        # 嵌入文本携带标题层级上下文，短章节/表格块也能命中语义检索
-        texts = [
-            f"{getattr(chunk, 'heading_path', '') or chunk.heading}\n{chunk.content}"
-            for chunk in enabled
-        ]
-        vectors = await self._embedding.embed_documents(texts)
-        points: list[dict[str, Any]] = []
-        for chunk, vector in zip(enabled, vectors, strict=True):
-            payload = item.to_payload()
-            payload.update(
-                {
-                    "title": f"{item.title} / {chunk.heading}",
-                    "content": chunk.content,
-                    "chunk_text": chunk.content,
-                    "chunk_index": chunk.chunk_index,
-                    "chunk_id": chunk.id,
-                    "heading": chunk.heading,
-                    "heading_path": getattr(chunk, "heading_path", "") or "",
-                    "chunk_type": getattr(chunk, "chunk_type", "text") or "text",
-                    "chapter": chunk.chapter,
-                    "page": chunk.page_start,
-                    "page_end": chunk.page_end,
-                    "knowledge_point": chunk.knowledge_point_name,
-                    "ability": chunk.ability or item.ability,
-                    "vector_dim": self._embedding.dimension,
-                }
-            )
-            point_id = f"{item.knowledge_id}-section-{chunk.id}"
-            points.append({"id": point_id, "vector": vector, "payload": payload})
-            chunk.vector_embedded = True
-            chunk.qdrant_point_id = point_id
-        await self._store.upsert(points)
+        # 展示原文保持格式；Embedding 和重排使用去除 Markdown 装饰后的稳定检索文本。
+        # 小批次写入避免 2GB 部署在大文件索引时同时持有全部向量。
+        batch_size = 16
+        point_count = 0
+        for start in range(0, len(enabled), batch_size):
+            batch = enabled[start : start + batch_size]
+            search_texts = [markdown_to_search_text(chunk.content) for chunk in batch]
+            texts = [
+                f"{getattr(chunk, 'heading_path', '') or chunk.heading}\n{search_text}"
+                for chunk, search_text in zip(batch, search_texts, strict=True)
+            ]
+            vectors = await self._embedding.embed_documents(texts)
+            points: list[dict[str, Any]] = []
+            indexed_chunks: list[tuple[KnowledgeChunk, str]] = []
+            for chunk, search_text, vector in zip(batch, search_texts, vectors, strict=True):
+                payload = item.to_payload()
+                payload.update(
+                    {
+                        "title": f"{item.title} / {chunk.heading}",
+                        "content": chunk.content,
+                        "chunk_text": search_text,
+                        "search_text": search_text,
+                        "chunk_index": chunk.chunk_index,
+                        "chunk_id": chunk.id,
+                        "heading": chunk.heading,
+                        "heading_path": getattr(chunk, "heading_path", "") or "",
+                        "chunk_type": getattr(chunk, "chunk_type", "text") or "text",
+                        "chapter": chunk.chapter,
+                        "page": chunk.page_start,
+                        "page_end": chunk.page_end,
+                        "knowledge_point": chunk.knowledge_point_name,
+                        "ability": chunk.ability or item.ability,
+                        "vector_dim": self._embedding.dimension,
+                    }
+                )
+                point_id = f"{item.knowledge_id}-section-{chunk.id}"
+                points.append({"id": point_id, "vector": vector, "payload": payload})
+                indexed_chunks.append((chunk, point_id))
+            await self._store.upsert(points)
+            for chunk, point_id in indexed_chunks:
+                chunk.vector_embedded = True
+                chunk.qdrant_point_id = point_id
+            point_count += len(points)
         item.vector_embedded = True
         item.qdrant_point_id = f"{item.knowledge_id}-section-*"
-        return len(points)
+        return point_count
 
     async def reindex_file_item(
         self,
@@ -243,6 +255,10 @@ class RAGPipeline:
         """按知识编号清理其全部向量块。"""
         await self.ensure_ready()
         await self._store.delete_by_filter({"knowledge_id": knowledge_id})
+
+    def mark_index_dirty(self) -> None:
+        """让后续检索重新检查数据库中未完成索引的分块。"""
+        self._db_synced = False
 
     async def retrieve(
         self,

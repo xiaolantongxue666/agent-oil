@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter, RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import BrandLockup from '@/components/BrandLockup.vue'
+import KnowledgeQAView from '@/views/KnowledgeQAView.vue'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
+const assistantVisible = ref(false)
 
 const menuGroups = [
   {
@@ -69,7 +71,7 @@ function logout() {
         </div>
         <div class="header-actions">
           <div class="role-chip"><el-icon><UserFilled /></el-icon>教师教学空间</div>
-          <el-button class="assistant-entry" text type="primary" @click="router.push('/teacher/assistant')"><el-icon><ChatLineRound /></el-icon>教学智能助手</el-button>
+          <el-button class="assistant-entry" text type="primary" @click="assistantVisible = true"><el-icon><ChatLineRound /></el-icon>教学智能助手</el-button>
           <el-divider direction="vertical" />
           <div class="user-info"><span class="user-avatar">{{ (auth.user?.real_name || auth.user?.username || '师').slice(0, 1) }}</span><div><strong>{{ auth.user?.real_name || auth.user?.username }}</strong><small>专业教师</small></div></div>
           <el-button text @click="logout">退出</el-button>
@@ -81,6 +83,19 @@ function logout() {
         <RouterView />
       </el-main>
     </el-container>
+    <el-dialog
+      v-model="assistantVisible"
+      class="teacher-assistant-dialog"
+      title="教学智能助手"
+      width="880px"
+      top="10vh"
+      draggable
+      :modal="false"
+      :lock-scroll="false"
+      :close-on-click-modal="false"
+    >
+      <KnowledgeQAView compact assistant-title="教学智能助手" />
+    </el-dialog>
   </el-container>
 </template>
 
@@ -118,6 +133,9 @@ function logout() {
 .teaching-boundary { display: flex; align-items: center; gap: 9px; margin: 18px 24px 0; padding: 9px 13px; border: 1px solid #dce8ef; border-radius: 8px; background: #f7fafc; color: #586d7c; font-size: 11px; }
 .teaching-boundary .el-icon { color: #2f6fed; }
 .teaching-boundary strong { margin-left: auto; color: #315f83; white-space: nowrap; }
+:deep(.teacher-assistant-dialog) { max-width: calc(100vw - 32px); margin-bottom: 0; }
+:deep(.teacher-assistant-dialog .el-dialog__header) { margin-right: 0; padding: 14px 18px; border-bottom: 1px solid var(--ots-border); }
+:deep(.teacher-assistant-dialog .el-dialog__body) { padding: 0; }
 
 @media (max-width: 1100px) { .role-chip,.header-actions .el-divider { display: none; } }
 @media (max-width: 768px) {
@@ -132,5 +150,6 @@ function logout() {
   .header-heading strong { margin: 0; font-size: 15px; }
   .teaching-boundary { margin: 12px 14px 0; }
   .teaching-boundary strong { display: none; }
+  :deep(.teacher-assistant-dialog) { max-width: calc(100vw - 16px); }
 }
 </style>

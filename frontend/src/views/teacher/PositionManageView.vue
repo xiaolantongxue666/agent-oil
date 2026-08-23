@@ -227,7 +227,7 @@ async function publish() {
 }
 
 function showGraph(positionId: number) {
-  router.push({ path: '/ability-graph', query: { position: String(positionId) } })
+  router.push({ path: '/teacher/ability-graph', query: { position: String(positionId) } })
 }
 
 function percent(value: number) {

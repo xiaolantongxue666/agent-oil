@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { knowledgeApi } from '@/api'
-import type { KnowledgeItemOut, KnowledgeStatsOut } from '@/types'
+import MarkdownContent from '@/components/MarkdownContent.vue'
+import type { KnowledgeChunkOut, KnowledgeItemOut, KnowledgeStatsOut } from '@/types'
 import { ABILITY_LABELS, type AbilityKey } from '@/types'
 
 const items = ref<KnowledgeItemOut[]>([])
@@ -15,6 +16,14 @@ const pageSize = 12
 
 const selectedDetail = ref<KnowledgeItemOut | null>(null)
 const detailVisible = ref(false)
+const detailLoading = ref(false)
+const detailError = ref('')
+const knowledgeChunks = ref<KnowledgeChunkOut[]>([])
+const selectedChunkId = ref<number | null>(null)
+
+const selectedChunk = computed(() =>
+  knowledgeChunks.value.find((chunk) => chunk.id === selectedChunkId.value) || knowledgeChunks.value[0] || null,
+)
 
 const abilityOptions = computed(() =>
   Object.entries(ABILITY_LABELS).map(([key, label]) => ({ value: key, label }))
@@ -44,13 +53,34 @@ async function loadStats() {
   } catch { /* ignore */ }
 }
 
-function openDetail(item: KnowledgeItemOut) {
+async function openDetail(item: KnowledgeItemOut) {
   selectedDetail.value = item
   detailVisible.value = true
+  detailLoading.value = true
+  detailError.value = ''
+  knowledgeChunks.value = []
+  selectedChunkId.value = null
+  try {
+    const detail = await knowledgeApi.detail(item.id)
+    selectedDetail.value = detail
+    if (detail.source_type === 'file_import') {
+      const chunks = await knowledgeApi.chunks(detail.id)
+      knowledgeChunks.value = chunks.items
+      selectedChunkId.value = chunks.items[0]?.id ?? null
+    }
+  } catch {
+    detailError.value = '知识详情加载失败，请稍后重试。'
+  } finally {
+    detailLoading.value = false
+  }
 }
 
 function abilityLabel(key: string) {
   return ABILITY_LABELS[key as AbilityKey] || key || '未分类'
+}
+
+function itemAbilities(item: KnowledgeItemOut) {
+  return item.chunk_abilities || (item.ability ? [item.ability] : [])
 }
 
 function difficultyStars(d: number) {
@@ -133,7 +163,16 @@ onMounted(() => {
         <div class="card-title">{{ item.title }}</div>
         <div class="card-content">{{ item.content }}</div>
         <div class="card-footer">
-          <el-tag size="small" effect="plain" type="info">{{ abilityLabel(item.ability) }}</el-tag>
+          <template v-if="itemAbilities(item).length">
+            <el-tag
+              v-for="ability in itemAbilities(item)"
+              :key="ability"
+              size="small"
+              effect="plain"
+              type="info"
+            >{{ abilityLabel(ability) }}</el-tag>
+          </template>
+          <el-tag v-else size="small" type="warning" effect="plain">待识别</el-tag>
           <span class="difficulty text-secondary">{{ difficultyStars(item.difficulty) }}</span>
           <span class="text-secondary" style="font-size: 11px">{{ item.source_name }}</span>
         </div>
@@ -152,14 +191,48 @@ onMounted(() => {
     </div>
 
     <!-- 详情弹窗 -->
-    <el-dialog v-model="detailVisible" :title="selectedDetail?.title" width="600px">
-      <template v-if="selectedDetail">
+    <el-dialog v-model="detailVisible" :title="selectedDetail?.title" width="min(1080px, 94vw)" top="5vh">
+      <div v-loading="detailLoading">
+        <template v-if="selectedDetail && !detailError">
         <div class="detail-meta">
-          <el-tag size="small">{{ abilityLabel(selectedDetail.ability) }}</el-tag>
+          <template v-if="itemAbilities(selectedDetail).length">
+            <el-tag v-for="ability in itemAbilities(selectedDetail)" :key="ability" size="small">
+              {{ abilityLabel(ability) }}
+            </el-tag>
+          </template>
+          <el-tag v-else size="small" type="warning">待识别</el-tag>
           <el-tag size="small" type="info" effect="plain">{{ selectedDetail.source_type }}</el-tag>
           <span class="text-secondary">{{ selectedDetail.knowledge_id }}</span>
         </div>
-        <div class="detail-content">{{ selectedDetail.content }}</div>
+        <template v-if="selectedDetail.source_type === 'file_import' && knowledgeChunks.length">
+          <div class="file-viewer">
+            <aside class="chunk-nav" aria-label="文档分块导航">
+              <div class="chunk-nav-title">章节 / 条款（{{ knowledgeChunks.length }}）</div>
+              <button
+                v-for="chunk in knowledgeChunks"
+                :key="chunk.id"
+                class="chunk-nav-item"
+                :class="{ active: chunk.id === selectedChunk?.id }"
+                type="button"
+                @click="selectedChunkId = chunk.id"
+              >
+                <span class="chunk-nav-index">{{ chunk.chunk_index + 1 }}</span>
+                <span class="chunk-nav-label">{{ chunk.heading || `分块 ${chunk.chunk_index + 1}` }}</span>
+                <span v-if="chunk.chunk_type === 'table'" class="chunk-nav-type">表格</span>
+              </button>
+            </aside>
+            <section v-if="selectedChunk" class="chunk-preview">
+              <div class="chunk-preview-meta text-secondary">
+                <span>{{ selectedChunk.heading_path || selectedChunk.chapter || selectedChunk.heading }}</span>
+                <span v-if="selectedChunk.page_start">
+                  · P{{ selectedChunk.page_start }}<template v-if="selectedChunk.page_end && selectedChunk.page_end !== selectedChunk.page_start">–{{ selectedChunk.page_end }}</template>
+                </span>
+              </div>
+              <MarkdownContent class="detail-content" :content="selectedChunk.content" />
+            </section>
+          </div>
+        </template>
+        <MarkdownContent v-else class="detail-content" :content="selectedDetail.content" />
         <el-descriptions :column="2" border size="small" style="margin-top: 16px">
           <el-descriptions-item label="来源">{{ selectedDetail.source_name }}</el-descriptions-item>
           <el-descriptions-item label="编号">{{ selectedDetail.source_no || '—' }}</el-descriptions-item>
@@ -168,7 +241,9 @@ onMounted(() => {
           <el-descriptions-item label="安全等级">{{ selectedDetail.safety_level || '—' }}</el-descriptions-item>
           <el-descriptions-item label="难度">{{ difficultyStars(selectedDetail.difficulty) }}</el-descriptions-item>
         </el-descriptions>
-      </template>
+        </template>
+        <el-empty v-else-if="!detailLoading && detailError" :description="detailError" :image-size="80" />
+      </div>
     </el-dialog>
   </div>
 </template>
@@ -265,9 +340,48 @@ onMounted(() => {
 }
 .detail-content {
   line-height: 1.7;
-  white-space: pre-wrap;
   background: var(--ots-bg);
   padding: 12px;
   border-radius: 8px;
+}
+.file-viewer {
+  display: grid;
+  grid-template-columns: minmax(210px, 28%) minmax(0, 1fr);
+  min-height: 430px;
+  border: 1px solid var(--ots-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.chunk-nav {
+  overflow-y: auto;
+  max-height: 58vh;
+  padding: 10px;
+  border-right: 1px solid var(--ots-border);
+  background: #fafcfd;
+}
+.chunk-nav-title { margin: 2px 4px 10px; font-size: 13px; font-weight: 600; }
+.chunk-nav-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 7px;
+  padding: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ots-text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+.chunk-nav-item:hover, .chunk-nav-item.active { background: #e8f4f5; color: var(--ots-primary); }
+.chunk-nav-index { flex: 0 0 22px; color: var(--ots-text-secondary); font-size: 12px; }
+.chunk-nav-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.chunk-nav-type { margin-left: auto; color: #ad6800; font-size: 11px; }
+.chunk-preview { min-width: 0; max-height: 58vh; overflow: auto; padding: 14px; }
+.chunk-preview-meta { margin-bottom: 10px; font-size: 12px; line-height: 1.5; }
+@media (max-width: 700px) {
+  .file-viewer { grid-template-columns: 1fr; }
+  .chunk-nav { max-height: 170px; border-right: 0; border-bottom: 1px solid var(--ots-border); }
+  .chunk-preview { max-height: 45vh; }
 }
 </style>

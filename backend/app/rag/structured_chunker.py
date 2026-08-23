@@ -22,6 +22,7 @@ _DOTTED_NUM_HEADING = re.compile(r"^(\d+(?:\.\d+){1,5})\b")
 _TABLE_MARKER = "【表格】"
 # Markdown 表格分隔行：| --- | :---: | 等
 _TABLE_SEPARATOR = re.compile(r"^\s*\|(?:\s*:?-+:?\s*\|)+\s*$")
+_CODE_FENCE = re.compile(r"^\s*(```|~~~)")
 
 # 中文标题单位 → 层级
 _CN_HEADING_LEVELS = {"篇": 1, "编": 1, "部": 1, "章": 1, "节": 2, "条": 3, "款": 4, "项": 4}
@@ -80,7 +81,6 @@ def split_structured_text(
     heading = "文档导言"
     heading_stack: list[tuple[int, str]] = [(1, "文档导言")]
     lines: list[str] = []
-    started_with_heading = False
     table_lines: list[str] | None = None
     table_page_start: int | None = None
     table_page_end: int | None = None
@@ -89,16 +89,15 @@ def split_structured_text(
     page_end: int | None = None
     char_start = 0
     cursor = 0
+    in_code_fence = False
 
     def current_path() -> str:
         return " / ".join(title for _, title in heading_stack)
 
     def flush() -> None:
-        nonlocal lines, started_with_heading
-        content = "\n".join(lines).strip()
-        body_lines = [entry for entry in lines if entry.strip()]
-        # 仅含标题行的空节不产生分块：标题信息已由 heading_path 携带
-        if content and not (started_with_heading and len(body_lines) <= 1):
+        nonlocal lines
+        content = "\n".join(lines).strip("\n")
+        if content:
             chunk_type = "table" if _TABLE_MARKER in content else "text"
             sections.append(
                 _Section(
@@ -113,7 +112,6 @@ def split_structured_text(
                 )
             )
         lines = []
-        started_with_heading = False
 
     def flush_table() -> None:
         nonlocal table_lines
@@ -136,13 +134,29 @@ def split_structured_text(
 
     for page_no, page_text in enumerate(source_pages, 1):
         for raw_line in page_text.splitlines():
-            line = raw_line.strip()
+            preserved_line = raw_line.rstrip()
+            line = preserved_line.strip()
             line_start = cursor
             cursor += len(raw_line) + 1
+            if _CODE_FENCE.match(line):
+                if not lines:
+                    char_start = line_start
+                    page_start = page_value(page_no)
+                lines.append(preserved_line)
+                page_end = page_value(page_no)
+                in_code_fence = not in_code_fence
+                continue
+            if in_code_fence:
+                if not lines:
+                    char_start = line_start
+                    page_start = page_value(page_no)
+                lines.append(preserved_line)
+                page_end = page_value(page_no)
+                continue
             if table_lines is not None:
                 if line.startswith("|"):
                     # 表内空行不打断表格（GFM 表格宽松延续）
-                    table_lines.append(line)
+                    table_lines.append(preserved_line)
                     table_page_end = page_value(page_no)
                     continue
                 if not line:
@@ -162,7 +176,7 @@ def split_structured_text(
                 if lines and lines[-1].strip() == _TABLE_MARKER:
                     marker_prefix = [lines.pop()]
                 flush()
-                table_lines = [*marker_prefix, line]
+                table_lines = [*marker_prefix, preserved_line]
                 table_page_start = page_value(page_no)
                 table_page_end = page_value(page_no)
                 table_char_start = line_start
@@ -174,8 +188,8 @@ def split_structured_text(
                 while heading_stack and heading_stack[-1][0] >= level:
                     heading_stack.pop()
                 heading_stack.append((level, heading))
-                lines = [line]
-                started_with_heading = True
+                # 标题单独存入 heading / heading_path，正文不重复写入标题行。
+                lines = []
                 page_start = page_value(page_no)
                 page_end = page_value(page_no)
                 char_start = line_start
@@ -183,22 +197,27 @@ def split_structured_text(
                 if not lines:
                     char_start = line_start
                     page_start = page_value(page_no)
-                lines.append(line)
+                lines.append(preserved_line)
                 page_end = page_value(page_no)
     flush_table()
     flush()
 
     result: list[StructuredTextChunk] = []
-    seen_checksums: set[str] = set()
+    seen_section_checksums: set[str] = set()
     for section in sections:
-        for piece in _split_oversized(section, max_chars=max_chars):
+        section_normalized = re.sub(r"\s+", " ", section.content).strip()
+        section_checksum = hashlib.sha256(section_normalized.encode("utf-8")).hexdigest()
+        # 相同章节正文只保留一次；长章节的相同续块不能被误删。
+        if section_checksum in seen_section_checksums:
+            continue
+        seen_section_checksums.add(section_checksum)
+        for piece_no, piece in enumerate(_split_oversized(section, max_chars=max_chars), 1):
             normalized = re.sub(r"\s+", " ", piece.content).strip()
-            if len(normalized) < 8:
+            if len(normalized) < 8 and len(f"{piece.heading} {normalized}".strip()) < 8:
                 continue
-            checksum = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-            if checksum in seen_checksums:
-                continue
-            seen_checksums.add(checksum)
+            checksum = hashlib.sha256(
+                f"{section_checksum}:{piece_no}:{normalized}".encode()
+            ).hexdigest()
             result.append(
                 StructuredTextChunk(
                     chunk_index=len(result),

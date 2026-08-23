@@ -92,6 +92,40 @@ async def test_chat_session_history(client, student_token):
 
 
 @pytest.mark.asyncio
+async def test_chat_session_can_be_deleted_with_its_messages(client, student_token):
+    created = await client.post(
+        "/api/chat",
+        json={"message": "巡检的基本原则是什么？"},
+        headers=student_token,
+    )
+    session_id = created.json()["data"]["session_id"]
+
+    deleted = await client.delete(f"/api/chat/sessions/{session_id}", headers=student_token)
+    assert deleted.status_code == 200
+    assert deleted.json()["data"] == {"id": session_id}
+
+    detail = await client.get(f"/api/chat/sessions/{session_id}", headers=student_token)
+    assert detail.status_code == 404
+    sessions = (await client.get("/api/chat/sessions", headers=student_token)).json()["data"]
+    assert session_id not in {item["id"] for item in sessions}
+
+
+@pytest.mark.asyncio
+async def test_chat_session_cannot_be_deleted_by_another_role(client, student_token, teacher_token):
+    created = await client.post(
+        "/api/chat",
+        json={"message": "巡检的基本原则是什么？"},
+        headers=student_token,
+    )
+    session_id = created.json()["data"]["session_id"]
+
+    deleted = await client.delete(f"/api/chat/sessions/{session_id}", headers=teacher_token)
+    assert deleted.status_code == 404
+    detail = await client.get(f"/api/chat/sessions/{session_id}", headers=student_token)
+    assert detail.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_chat_asks_for_clarification_on_ambiguous_follow_up(client, student_token):
     first = await client.post(
         "/api/chat",

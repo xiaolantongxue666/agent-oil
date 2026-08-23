@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { knowledgeApi } from '@/api'
+import MarkdownContent from '@/components/MarkdownContent.vue'
 import type { KnowledgeChunkOut, KnowledgeItemOut, KnowledgeStatsOut } from '@/types'
 import { ABILITY_LABELS, type AbilityKey } from '@/types'
 
@@ -25,6 +26,7 @@ const chunkKnowledgePoints = ref<Array<{
   id: number; code: string; name: string; ability: string
 }>>([])
 const savingChunkIds = ref<number[]>([])
+const normalizingHtmlTables = ref(false)
 
 // 新增表单（手动输入）
 const addVisible = ref(false)
@@ -41,7 +43,9 @@ const submitting = ref(false)
 // 文件导入
 const uploadVisible = ref(false)
 const uploading = ref(false)
-const uploadAbility = ref('process_understanding')
+const AUTO_ABILITY = '__auto__'
+// 默认自动识别；选择具体维度时仅作为同分候选的轻微偏向。
+const uploadAbility = ref(AUTO_ABILITY)
 const uploadSourceName = ref('')
 const uploadDifficulty = ref(1)
 const uploadResult = ref<{
@@ -49,6 +53,7 @@ const uploadResult = ref<{
   file_name: string; file_type: string; file_size: number
   text_length: number; page_count: number; vector_points: number
   chunk_count: number; enabled_chunk_count: number; disabled_chunk_count: number
+  chunk_abilities: string[]
 } | null>(null)
 
 const abilityOptions = computed(() =>
@@ -87,6 +92,10 @@ async function loadStats() {
 
 function abilityLabel(key: string) {
   return ABILITY_LABELS[key as AbilityKey] || key || '未分类'
+}
+
+function itemAbilities(item: KnowledgeItemOut) {
+  return item.chunk_abilities || (item.ability ? [item.ability] : [])
 }
 
 function difficultyStars(d: number) {
@@ -150,6 +159,34 @@ async function loadChunks(itemId: number) {
   }
 }
 
+async function normalizeHtmlTables() {
+  if (!selectedDetail.value || normalizingHtmlTables.value) return
+  try {
+    await ElMessageBox.confirm(
+      '这会将原始 HTML 表格转为 Markdown 表格，并重新生成分块、知识点建议和向量索引。现有分块需要重新审核，是否继续？',
+      '修复 MinerU 表格',
+      { type: 'warning', confirmButtonText: '重新分块', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  normalizingHtmlTables.value = true
+  try {
+    const result = await knowledgeApi.normalizeHtmlTables(selectedDetail.value.id)
+    if (!result.changed) {
+      ElMessage.info(result.message || '未发现需要修复的 HTML 表格')
+      return
+    }
+    selectedDetail.value = await knowledgeApi.detail(selectedDetail.value.id)
+    await loadChunks(selectedDetail.value.id)
+    ElMessage.success(`已生成 ${result.chunk_count} 个新分块，请审核知识点映射和启用状态`)
+  } catch {
+    ElMessage.error('HTML 表格修复失败，请稍后重试')
+  } finally {
+    normalizingHtmlTables.value = false
+  }
+}
+
 async function updateChunkEnabled(chunk: KnowledgeChunkOut, enabled: boolean) {
   savingChunkIds.value.push(chunk.id)
   try {
@@ -170,6 +207,13 @@ async function updateChunkPoint(chunk: KnowledgeChunkOut, pointId: number | null
   try {
     const result = await knowledgeApi.updateChunk(chunk.id, { knowledge_point_id: pointId })
     Object.assign(chunk, result.chunk)
+    if (selectedDetail.value) {
+      selectedDetail.value.chunk_abilities = Array.from(new Set(
+        knowledgeChunks.value
+          .filter((item) => item.knowledge_point_id && item.ability)
+          .map((item) => item.ability),
+      )).sort()
+    }
     ElMessage.success('知识点映射已更新')
   } catch {
     if (selectedDetail.value) await loadChunks(selectedDetail.value.id)
@@ -221,7 +265,7 @@ async function submitAdd() {
 
 function openUpload() {
   uploadResult.value = null
-  uploadAbility.value = 'process_understanding'
+  uploadAbility.value = AUTO_ABILITY
   uploadSourceName.value = ''
   uploadDifficulty.value = 1
   uploadVisible.value = true
@@ -234,7 +278,7 @@ async function handleUpload(options: any) {
 
   const formData = new FormData()
   formData.append('file', file)
-  formData.append('ability', uploadAbility.value)
+  formData.append('ability', uploadAbility.value === AUTO_ABILITY ? '' : uploadAbility.value)
   formData.append('source_name', uploadSourceName.value || file.name)
   formData.append('difficulty', String(uploadDifficulty.value))
 
@@ -369,7 +413,17 @@ onMounted(() => {
       </el-table-column>
       <el-table-column label="能力维度" width="120">
         <template #default="{ row }">
-          <el-tag size="small" type="info" effect="plain">{{ abilityLabel(row.ability) }}</el-tag>
+          <template v-if="itemAbilities(row).length">
+            <el-tag
+              v-for="ability in itemAbilities(row)"
+              :key="ability"
+              size="small"
+              type="info"
+              effect="plain"
+              style="margin: 2px"
+            >{{ abilityLabel(ability) }}</el-tag>
+          </template>
+          <el-tag v-else size="small" type="warning" effect="plain">待识别</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="来源" min-width="190">
@@ -419,15 +473,25 @@ onMounted(() => {
       <div v-loading="detailLoading">
         <el-descriptions v-if="selectedDetail" :column="2" border>
           <el-descriptions-item label="知识编号">{{ selectedDetail.knowledge_id }}</el-descriptions-item>
-          <el-descriptions-item label="能力维度">{{ abilityLabel(selectedDetail.ability) }}</el-descriptions-item>
+          <el-descriptions-item label="涉及能力维度">
+            <template v-if="itemAbilities(selectedDetail).length">
+              <el-tag v-for="ability in itemAbilities(selectedDetail)" :key="ability" size="small" style="margin-right: 4px">
+                {{ abilityLabel(ability) }}
+              </el-tag>
+            </template>
+            <el-tag v-else size="small" type="warning">待识别</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="selectedDetail.source_type === 'file_import'" label="首选能力维度">
+            {{ selectedDetail.ability ? abilityLabel(selectedDetail.ability) : '未指定（自动识别）' }}
+          </el-descriptions-item>
           <el-descriptions-item label="标题" :span="2">{{ selectedDetail.title }}</el-descriptions-item>
           <el-descriptions-item label="来源名称" :span="2">{{ selectedDetail.source_name }}</el-descriptions-item>
           <el-descriptions-item label="来源编号">{{ selectedDetail.source_no || '—' }}</el-descriptions-item>
           <el-descriptions-item label="PDF 页码">{{ selectedDetail.page ? `第 ${selectedDetail.page} 页` : '—' }}</el-descriptions-item>
           <el-descriptions-item label="章节" :span="2">{{ selectedDetail.chapter || '—' }}</el-descriptions-item>
           <el-descriptions-item label="关联知识点" :span="2">{{ selectedDetail.knowledge_point || '—' }}</el-descriptions-item>
-          <el-descriptions-item label="知识摘要" :span="2">
-            <div class="detail-content">{{ selectedDetail.content }}</div>
+          <el-descriptions-item v-if="selectedDetail.source_type === 'file_import'" label="文件内容" :span="2">
+            已按章节/条款分块，请在下方展开分块查看原文并完成审核。
           </el-descriptions-item>
         </el-descriptions>
 
@@ -435,7 +499,19 @@ onMounted(() => {
           <el-divider content-position="left">章节/条款分块审核</el-divider>
           <div class="chunk-summary">
             <span>共 {{ knowledgeChunks.length }} 块，已启用 {{ chunkEnabledCount }} 块</span>
-            <span class="text-secondary">仅启用块进入专业问答检索；已选择知识点的启用块会关联岗位图谱。</span>
+            <span class="chunk-summary-actions">
+              <span class="text-secondary">仅启用块进入专业问答检索；已选择知识点的启用块会关联岗位图谱。</span>
+              <el-button
+                v-if="selectedDetail?.content.toLowerCase().includes('<table')"
+                size="small"
+                type="warning"
+                plain
+                :loading="normalizingHtmlTables"
+                @click="normalizeHtmlTables"
+              >
+                修复 HTML 表格并重新分块
+              </el-button>
+            </span>
           </div>
           <el-table
             v-loading="chunksLoading"
@@ -446,7 +522,7 @@ onMounted(() => {
           >
             <el-table-column type="expand" width="42">
               <template #default="{ row }">
-                <div class="chunk-full-content">{{ row.content }}</div>
+                <MarkdownContent class="chunk-full-content" :content="row.content" />
               </template>
             </el-table-column>
             <el-table-column label="#" prop="chunk_index" width="55" />
@@ -507,6 +583,10 @@ onMounted(() => {
             </el-table-column>
           </el-table>
         </template>
+        <template v-else-if="selectedDetail">
+          <el-divider content-position="left">知识正文</el-divider>
+          <MarkdownContent class="detail-content" :content="selectedDetail.content" />
+        </template>
       </div>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
@@ -542,7 +622,16 @@ onMounted(() => {
 
     <!-- 文件导入弹窗 -->
     <el-dialog v-model="uploadVisible" title="📁 导入文件到知识库" width="600px">
-      <el-form label-width="80px">
+      <el-form label-width="140px">
+        <el-form-item label="首选能力维度（可选）">
+          <el-select v-model="uploadAbility" style="width: 100%">
+            <el-option label="自动识别（推荐）" :value="AUTO_ABILITY" />
+            <el-option v-for="opt in abilityOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+          </el-select>
+          <div class="text-secondary" style="font-size: 12px; line-height: 1.5; margin-top: 4px">
+            文件可包含多个能力维度；该选择仅用于识别同分时的优先级，未识别分块仍需教师选择知识点。
+          </div>
+        </el-form-item>
         <el-form-item label="选择文件">
           <el-upload
             drag
@@ -556,15 +645,10 @@ onMounted(() => {
               <div style="font-size: 40px; margin-bottom: 8px">📄</div>
               <div style="color: #606266">将文件拖到此处，或 <em style="color: var(--el-color-primary)">点击上传</em></div>
               <div style="font-size: 12px; color: #909399; margin-top: 8px">
-                支持 PDF、DOCX、TXT、MD，按章/节/条优先分块，最大 20MB
+                支持 PDF、DOCX、TXT、MD，按章/节/条优先分块，最大 5MB
               </div>
             </div>
           </el-upload>
-        </el-form-item>
-        <el-form-item label="能力维度">
-          <el-select v-model="uploadAbility" style="width: 100%">
-            <el-option v-for="opt in abilityOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-          </el-select>
         </el-form-item>
         <el-form-item label="来源名称">
           <el-input v-model="uploadSourceName" placeholder="留空则使用文件名" />
@@ -600,6 +684,14 @@ onMounted(() => {
           </el-descriptions-item>
           <el-descriptions-item label="已建向量">
             <el-tag type="success" size="small">{{ uploadResult.vector_points }} 个</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="涉及维度" :span="2">
+            <template v-if="uploadResult.chunk_abilities.length">
+              <el-tag v-for="ability in uploadResult.chunk_abilities" :key="ability" size="small" style="margin-right: 4px">
+                {{ abilityLabel(ability) }}
+              </el-tag>
+            </template>
+            <el-tag v-else size="small" type="warning">待识别</el-tag>
           </el-descriptions-item>
         </el-descriptions>
         <div style="text-align: center; margin-top: 14px">
@@ -672,8 +764,12 @@ onMounted(() => {
 }
 
 .detail-content {
-  white-space: pre-wrap;
-  line-height: 1.8;
+  max-height: 420px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: auto;
+  padding-right: 6px;
+  box-sizing: border-box;
 }
 
 .chunk-summary {
@@ -683,15 +779,13 @@ onMounted(() => {
   margin-bottom: 12px;
   font-size: 13px;
 }
+.chunk-summary-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 
 .chunk-heading { font-weight: 600; line-height: 1.45; }
 .chunk-page { margin-top: 4px; font-size: 12px; }
 .chunk-reason { margin-bottom: 5px; font-size: 12px; line-height: 1.5; }
 .chunk-full-content {
   padding: 8px 56px;
-  white-space: pre-wrap;
-  line-height: 1.8;
-  color: var(--ots-text-primary);
 }
 
 .upload-result {

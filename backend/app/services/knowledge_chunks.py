@@ -98,7 +98,7 @@ async def create_chunks_for_item(
         await session.execute(
             select(KnowledgePoint, Ability.key).join(
                 Ability, Ability.id == KnowledgePoint.ability_id
-            )
+            ).order_by(Ability.id, KnowledgePoint.id)
         )
     ).all()
     structured = split_structured_text(item.content, pages=pages)

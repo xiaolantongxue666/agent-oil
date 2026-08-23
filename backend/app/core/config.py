@@ -74,8 +74,13 @@ class Settings(BaseSettings):
 
     # ---- 文件上传 ----
     upload_dir: str = "uploads"
-    upload_max_size_mb: int = 20
+    upload_max_size_mb: int = 5
     upload_allowed_extensions: str = "pdf,docx,txt,md,markdown"
+    document_max_pages: int = 60
+    document_max_text_chars: int = 120_000
+    document_max_archive_entries: int = 2_000
+    document_max_uncompressed_bytes: int = 30_000_000
+    document_max_compression_ratio: int = 100
 
     # ---- RAG ----
     rag_retrieve_top_k: int = 20

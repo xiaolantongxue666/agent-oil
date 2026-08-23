@@ -16,6 +16,10 @@ _PAGE_NUM_RE = re.compile(r"^\s*\d+\s*$")
 _DASH_LINE_RE = re.compile(r"^[\-=—_·\s]+$")
 _MULTI_SPACE_RE = re.compile(r"[ \t　]+")
 _MULTI_NEWLINE_RE = re.compile(r"\n{3,}")
+_MARKDOWN_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+")
+_MARKDOWN_LIST_RE = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)")
+_MARKDOWN_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*$")
+_MARKDOWN_FENCE_RE = re.compile(r"^\s*(```|~~~)")
 
 
 def clean_text(text: str) -> str:
@@ -39,4 +43,40 @@ def clean_text(text: str) -> str:
     return cleaned.strip()
 
 
-__all__ = ["clean_text"]
+def clean_markdown(text: str) -> str:
+    """仅规范 Markdown 的编码和换行，不破坏其展示语义。"""
+
+    if not text:
+        return ""
+    normalized = text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
+    # 保留前导空白、空行、围栏代码块、列表及表格；仅移除每行末尾的无意义空白。
+    return "\n".join(line.rstrip() for line in normalized.split("\n")).strip("\n")
+
+
+def markdown_to_search_text(text: str) -> str:
+    """将保真的 Markdown 转成稳定的检索文本，不修改展示原文。"""
+
+    if not text:
+        return ""
+    lines: list[str] = []
+    in_fence = False
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if _MARKDOWN_FENCE_RE.match(stripped):
+            in_fence = not in_fence
+            continue
+        if not stripped:
+            lines.append("")
+            continue
+        if not in_fence and _MARKDOWN_TABLE_SEPARATOR_RE.match(stripped):
+            continue
+        if not in_fence:
+            stripped = _MARKDOWN_HEADING_RE.sub("", stripped)
+            stripped = _MARKDOWN_LIST_RE.sub("", stripped)
+            if stripped.startswith("|") and stripped.endswith("|"):
+                stripped = " ".join(cell.strip() for cell in stripped.strip("|").split("|"))
+        lines.append(stripped)
+    return clean_text("\n".join(lines))
+
+
+__all__ = ["clean_markdown", "clean_text", "markdown_to_search_text"]
