@@ -8,7 +8,7 @@ services:
     ports: !reset []
 
   backend:
-    image: agent-oil-backend:v1
+    image: agent-oil-backend:v2
     build: !reset null
     mem_limit: 512m
     ports: !reset []
@@ -16,7 +16,7 @@ services:
       - uploads-data:/app/uploads
 
   frontend:
-    image: agent-oil-frontend:v1
+    image: agent-oil-frontend:v2
     build: !reset null
     mem_limit: 48m
 
