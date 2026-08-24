@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import AsyncIterator
 from uuid import uuid4
 
@@ -26,6 +27,7 @@ from app.db.session import AsyncSessionLocal
 from app.models.chat import ChatMessage, ChatSession
 from app.rag import (
     normalize_citations,
+    split_before_model_citation_section,
     strip_model_citation_section,
 )
 from app.safety import build_safe_output_message, get_safety_guard
@@ -38,12 +40,14 @@ from app.schemas.chat import (
     Citation,
 )
 from app.services.admin_governance import enforce_feature
-from app.services.learning_assistant import LearningAssistantService
+from app.services.learning_assistant import LearningAssistantResult, LearningAssistantService
 from app.workflow.context import WorkflowContext
 from app.workflow.factory import get_engine
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 _assistant_service = LearningAssistantService()
+_STREAM_KNOWLEDGE_CITATION_RE = re.compile(r"\[(\d+)\]")
+_STREAM_BUSINESS_CITATION_RE = re.compile(r"\[B(\d+)\]", re.IGNORECASE)
 
 
 def _title_from(msg: str) -> str:
@@ -60,6 +64,35 @@ def _safety_outcome(raw: dict | None) -> dict | None:
     }
 
 
+def _used_business_evidence(
+    assistant_result: LearningAssistantResult | None,
+    context: WorkflowContext,
+) -> list[dict]:
+    if assistant_result is None:
+        return []
+    indexes = context.metadata.get("used_business_evidence_indexes", [])
+    if not isinstance(indexes, list):
+        return []
+    return [
+        assistant_result.evidence[index - 1]
+        for index in indexes
+        if isinstance(index, int) and 1 <= index <= len(assistant_result.evidence)
+    ]
+
+
+def _sanitize_stream_citations(
+    content: str,
+    *,
+    knowledge_count: int,
+    business_count: int,
+) -> str:
+    # 支持性核验要在完整答案生成后执行；流式阶段先隐藏全部依据标记，
+    # 最终通过 replace 事件一次性回填已核验的标记，避免短暂展示伪引用。
+    _ = knowledge_count, business_count
+    content = _STREAM_KNOWLEDGE_CITATION_RE.sub("", content)
+    return _STREAM_BUSINESS_CITATION_RE.sub("", content)
+
+
 def _message_out(message: ChatMessage) -> dict:
     """将历史消息兼容地转换为输出，避免旧的异常引用 JSON 破坏会话。
 
@@ -68,6 +101,7 @@ def _message_out(message: ChatMessage) -> dict:
     """
 
     citations = normalize_citations(message.citations)
+    assistant_meta = message.assistant_meta if isinstance(message.assistant_meta, dict) else {}
     content = (
         strip_model_citation_section(message.content)
         if message.role == "assistant"
@@ -78,6 +112,13 @@ def _message_out(message: ChatMessage) -> dict:
         role=message.role,
         content=content,
         citations=citations,
+        intent=str(assistant_meta.get("intent", "")),
+        evidence=assistant_meta.get("evidence", []),
+        cards=assistant_meta.get("cards", []),
+        execution_trace=assistant_meta.get("execution_trace", []),
+        retrieval_status=str(assistant_meta.get("retrieval_status", "")),
+        answer_basis=assistant_meta.get("answer_basis", []),
+        retrieved_count=int(assistant_meta.get("retrieved_count", 0) or 0),
         created_at=message.created_at.isoformat() if message.created_at else "",
     ).model_dump()
 
@@ -124,6 +165,7 @@ async def chat(body: ChatRequest, user: CurrentUser, session: DBSession) -> dict
             user_id=uid,
             role=user.get("role", "student"),
             message=body.message,
+            history=[item.content for item in history if item.role == "user"],
         )
 
     # 3. 运行 QA 工作流
@@ -137,8 +179,17 @@ async def chat(body: ChatRequest, user: CurrentUser, session: DBSession) -> dict
         messages=[{"role": item.role, "content": item.content} for item in history],
         role=user.get("role", "student"),
         metadata=(
-            {"controlled_business_facts": assistant_result.controlled_facts}
-            if assistant_result else {}
+            {
+                "controlled_business_facts": assistant_result.controlled_facts,
+                "business_evidence_count": len(assistant_result.evidence),
+                "business_evidence": list(assistant_result.evidence),
+                "business_outcomes": list(assistant_result.module_outcomes),
+                "requires_knowledge_base": assistant_result.requires_knowledge_base,
+                "execution_trace": list(assistant_result.execution_trace),
+                "module_errors": list(assistant_result.module_errors),
+            }
+            if assistant_result
+            else {"requires_knowledge_base": False, "execution_trace": []}
         ),
     )
     engine = get_engine("qa")
@@ -158,12 +209,24 @@ async def chat(body: ChatRequest, user: CurrentUser, session: DBSession) -> dict
         # Do not expose personal-business UI affordances after either workflow guard rejects.
         assistant_result = None
 
+    used_business_evidence = _used_business_evidence(assistant_result, ctx)
+    assistant_meta = {
+        "intent": assistant_result.intent if assistant_result else "knowledge_qa",
+        "evidence": used_business_evidence,
+        "cards": assistant_result.cards if assistant_result else [],
+        "execution_trace": ctx.metadata.get("execution_trace", []),
+        "retrieval_status": ctx.metadata.get("retrieval_status", "not_called"),
+        "answer_basis": ctx.metadata.get("answer_basis", []),
+        "retrieved_count": len(ctx.retrieved_documents),
+    }
+
     # 4. 持久化助手消息（含引用）
     assistant_msg = ChatMessage(
         session_id=sess.id,
         role="assistant",
         content=answer,
         citations=citations_raw,
+        assistant_meta=assistant_meta,
         token_count=ctx.metadata.get("token_count", 0),
     )
     session.add(assistant_msg)
@@ -176,11 +239,15 @@ async def chat(body: ChatRequest, user: CurrentUser, session: DBSession) -> dict
         retrieved_count=len(ctx.retrieved_documents),
         safety=safety,
         intent=assistant_result.intent if assistant_result else "knowledge_qa",
+        intent_confidence=assistant_result.intent_confidence if assistant_result else 0.0,
         secondary_intents=assistant_result.secondary_intents if assistant_result else [],
-        evidence=assistant_result.evidence if assistant_result else [],
+        evidence=used_business_evidence,
         cards=assistant_result.cards if assistant_result else [],
         actions=assistant_result.actions if assistant_result else [],
         trace_summary=(assistant_result.trace if assistant_result else ["safety_blocked_before_business_data"]),
+        execution_trace=ctx.metadata.get("execution_trace", []),
+        retrieval_status=ctx.metadata.get("retrieval_status", "not_called"),
+        answer_basis=ctx.metadata.get("answer_basis", []),
         ai_generated=True,
     )
     return ok(resp.model_dump())
@@ -229,43 +296,129 @@ async def chat_stream(
     session_id = sess.id
     request_id = str(uuid4())
 
-    assistant_result = None
-    if precheck.safe:
-        assistant_result = await _assistant_service.prepare(
-            session,
-            user_id=uid,
-            role=user.get("role", "student"),
-            message=body.message,
-        )
-
-    meta = {
-        "session_id": session_id,
-        "request_id": request_id,
-        "intent": assistant_result.intent if assistant_result else "knowledge_qa",
-        "secondary_intents": assistant_result.secondary_intents if assistant_result else [],
-        "evidence": assistant_result.evidence if assistant_result else [],
-        "cards": assistant_result.cards if assistant_result else [],
-        "actions": assistant_result.actions if assistant_result else [],
-        "trace_summary": (
-            assistant_result.trace if assistant_result
-            else ["safety_blocked_before_business_data"]
-        ),
-    }
-    workflow_args = {
-        "user_id": uid,
-        "session_id": str(session_id),
-        "intent": meta["intent"],
-        "user_input": body.message,
-        "history": [{"role": item.role, "content": item.content} for item in history],
-        "role": role,
-        "controlled_facts": (
-            assistant_result.controlled_facts if assistant_result else ""
-        ),
-    }
+    history_payload = [{"role": item.role, "content": item.content} for item in history]
+    user_history = [item.content for item in history if item.role == "user"]
 
     async def _event_stream() -> AsyncIterator[str]:
-        # 有界队列将 LLM 生产速度和客户端消费速度连接起来，避免丢片或无限积压。
-        sink: asyncio.Queue[str | None] = asyncio.Queue(maxsize=32)
+        # 同一队列保持“过程事件—回答分片—结束哨兵”的严格时序。
+        sink: asyncio.Queue[str | dict[str, object] | None] = asyncio.Queue()
+
+        yield _sse_event(
+            "start",
+            {"session_id": session_id, "request_id": request_id},
+        )
+        yield _sse_event(
+            "status",
+            {"request_id": request_id, "message": "正在识别问题意图"},
+        )
+
+        assistant_result = None
+        if precheck.safe:
+            async def _prepare_assistant() -> LearningAssistantResult:
+                async with AsyncSessionLocal() as prepare_session:
+                    return await _assistant_service.prepare(
+                        prepare_session,
+                        user_id=uid,
+                        role=role,
+                        message=body.message,
+                        history=user_history,
+                        progress_sink=sink,
+                    )
+
+            prepare_task = asyncio.create_task(_prepare_assistant())
+            try:
+                while not prepare_task.done() or not sink.empty():
+                    try:
+                        process = await asyncio.wait_for(
+                            sink.get(),
+                            timeout=0.1 if prepare_task.done() else 15,
+                        )
+                    except TimeoutError:
+                        if prepare_task.done():
+                            break
+                        yield _sse_event("heartbeat", {"request_id": request_id})
+                        continue
+                    if isinstance(process, dict):
+                        yield _sse_event(
+                            "process",
+                            {"request_id": request_id, **process},
+                        )
+                assistant_result = await prepare_task
+            except asyncio.CancelledError:
+                if not prepare_task.done():
+                    prepare_task.cancel()
+                    await asyncio.gather(prepare_task, return_exceptions=True)
+                raise
+            except Exception:  # noqa: BLE001
+                if not prepare_task.done():
+                    prepare_task.cancel()
+                    await asyncio.gather(prepare_task, return_exceptions=True)
+                logger.exception("QA 流式业务准备阶段执行失败")
+                yield _sse_event(
+                    "error",
+                    {"request_id": request_id, "message": "问答准备失败，请重试"},
+                )
+                yield _sse_event(
+                    "done",
+                    {
+                        "answer": "",
+                        "session_id": session_id,
+                        "request_id": request_id,
+                        "completed": False,
+                    },
+                )
+                return
+
+        meta = {
+            "session_id": session_id,
+            "request_id": request_id,
+            "intent": assistant_result.intent if assistant_result else "knowledge_qa",
+            "intent_confidence": assistant_result.intent_confidence if assistant_result else 0.0,
+            "secondary_intents": assistant_result.secondary_intents if assistant_result else [],
+            "evidence": assistant_result.evidence if assistant_result else [],
+            "cards": assistant_result.cards if assistant_result else [],
+            "actions": assistant_result.actions if assistant_result else [],
+            "trace_summary": (
+                assistant_result.trace if assistant_result
+                else ["safety_blocked_before_business_data"]
+            ),
+            "execution_trace": assistant_result.execution_trace if assistant_result else [],
+            "retrieval_status": (
+                "pending"
+                if assistant_result and assistant_result.requires_knowledge_base
+                else "not_called"
+            ),
+            "answer_basis": [],
+        }
+        workflow_args = {
+            "user_id": uid,
+            "session_id": str(session_id),
+            "intent": meta["intent"],
+            "user_input": body.message,
+            "history": history_payload,
+            "role": role,
+            "controlled_facts": (
+                assistant_result.controlled_facts if assistant_result else ""
+            ),
+            "business_evidence_count": (
+                len(assistant_result.evidence) if assistant_result else 0
+            ),
+            "business_evidence": (
+                list(assistant_result.evidence) if assistant_result else []
+            ),
+            "business_outcomes": (
+                list(assistant_result.module_outcomes) if assistant_result else []
+            ),
+            "requires_knowledge_base": (
+                assistant_result.requires_knowledge_base if assistant_result else False
+            ),
+            "execution_trace": (
+                list(assistant_result.execution_trace) if assistant_result else []
+            ),
+            "module_errors": (
+                list(assistant_result.module_errors) if assistant_result else []
+            ),
+        }
         ctx = WorkflowContext(
             user_id=workflow_args["user_id"],
             session_id=workflow_args["session_id"],
@@ -277,7 +430,14 @@ async def chat_stream(
             role=workflow_args["role"],
             metadata={
                 "controlled_business_facts": workflow_args["controlled_facts"],
+                "business_evidence_count": workflow_args["business_evidence_count"],
+                "business_evidence": workflow_args["business_evidence"],
+                "business_outcomes": workflow_args["business_outcomes"],
+                "requires_knowledge_base": workflow_args["requires_knowledge_base"],
+                "execution_trace": workflow_args["execution_trace"],
+                "module_errors": workflow_args["module_errors"],
                 "stream_sink": sink,
+                "process_sink": sink,
             },
         )
         engine = get_engine("qa")
@@ -297,11 +457,10 @@ async def chat_stream(
         workflow_task = asyncio.create_task(_run_workflow())
         streamer = SafeSentenceStreamer()
         stream_violation = None
+        visible_parts: list[str] = []
+        generation_status_sent = False
+        model_citation_section_started = False
 
-        yield _sse_event(
-            "start",
-            {"session_id": session_id, "request_id": request_id},
-        )
         # 业务证据与跳转卡片要等完整输出安全校验后再下发。
         yield _sse_event(
             "meta",
@@ -309,13 +468,13 @@ async def chat_stream(
                 "session_id": session_id,
                 "request_id": request_id,
                 "intent": meta["intent"],
+                "intent_confidence": meta["intent_confidence"],
+                "secondary_intents": meta["secondary_intents"],
+                "trace_summary": meta["trace_summary"],
+                "execution_trace": meta["execution_trace"],
+                "retrieval_status": meta["retrieval_status"],
             },
         )
-        yield _sse_event(
-            "status",
-            {"request_id": request_id, "message": "正在检索专业资料并组织回答"},
-        )
-
         try:
             while True:
                 try:
@@ -328,8 +487,40 @@ async def chat_stream(
                     continue
                 if piece is None:
                     break
+                if isinstance(piece, dict):
+                    yield _sse_event(
+                        "process",
+                        {"request_id": request_id, **piece},
+                    )
+                    continue
                 decision = streamer.feed(piece)
                 for chunk in decision.chunks:
+                    if model_citation_section_started:
+                        continue
+                    chunk, model_citation_section_started = split_before_model_citation_section(
+                        chunk
+                    )
+                    chunk = _sanitize_stream_citations(
+                        chunk,
+                        knowledge_count=len(ctx.retrieved_documents),
+                        business_count=workflow_args["business_evidence_count"],
+                    )
+                    if not chunk:
+                        continue
+                    if not generation_status_sent:
+                        generation_status_sent = True
+                        yield _sse_event(
+                            "status",
+                            {
+                                "request_id": request_id,
+                                "message": (
+                                    f"专业资料检索完成（{len(ctx.retrieved_documents)} 个候选片段），正在生成回答"
+                                    if workflow_args["requires_knowledge_base"]
+                                    else "对应业务功能分析完成，正在生成回答"
+                                ),
+                            },
+                        )
+                    visible_parts.append(chunk)
                     yield _sse_event(
                         "delta",
                         {"request_id": request_id, "content": chunk},
@@ -341,6 +532,32 @@ async def chat_stream(
             if stream_violation is None:
                 tail = streamer.finish()
                 for chunk in tail.chunks:
+                    if model_citation_section_started:
+                        continue
+                    chunk, model_citation_section_started = split_before_model_citation_section(
+                        chunk
+                    )
+                    chunk = _sanitize_stream_citations(
+                        chunk,
+                        knowledge_count=len(ctx.retrieved_documents),
+                        business_count=workflow_args["business_evidence_count"],
+                    )
+                    if not chunk:
+                        continue
+                    if not generation_status_sent:
+                        generation_status_sent = True
+                        yield _sse_event(
+                            "status",
+                            {
+                                "request_id": request_id,
+                                "message": (
+                                    f"专业资料检索完成（{len(ctx.retrieved_documents)} 个候选片段），正在生成回答"
+                                    if workflow_args["requires_knowledge_base"]
+                                    else "对应业务功能分析完成，正在生成回答"
+                                ),
+                            },
+                        )
+                    visible_parts.append(chunk)
                     yield _sse_event(
                         "delta",
                         {"request_id": request_id, "content": chunk},
@@ -366,6 +583,9 @@ async def chat_stream(
                         "cards": [],
                         "actions": [],
                         "trace_summary": ["stream_output_safety_blocked"],
+                        "execution_trace": [],
+                        "retrieval_status": "blocked",
+                        "answer_basis": [],
                     }
                 )
                 yield _sse_event(
@@ -387,16 +607,41 @@ async def chat_stream(
                         "retrieved_count": len(ctx.retrieved_documents),
                         "citations": citations_raw,
                         "safety": safety,
+                        "execution_trace": ctx.metadata.get("execution_trace", []),
+                        "retrieval_status": ctx.metadata.get("retrieval_status", "not_called"),
+                        "answer_basis": ctx.metadata.get("answer_basis", []),
+                        "evidence": _used_business_evidence(assistant_result, ctx),
                     }
                 )
                 if safety:
-                    meta.update({"evidence": [], "cards": [], "actions": []})
+                    meta.update(
+                        {
+                            "evidence": [],
+                            "cards": [],
+                            "actions": [],
+                            "execution_trace": [
+                                {
+                                    "step": "safety",
+                                    "status": "blocked",
+                                    "summary": "内容未通过安全校验",
+                                }
+                            ],
+                            "retrieval_status": "blocked",
+                            "answer_basis": [],
+                        }
+                    )
                     yield _sse_event(
                         "replace",
                         {"request_id": request_id, "content": answer, "safety": safety},
                     )
                 elif not ctx.metadata.get("streamed"):
                     # 澄清、安全输入拦截等不经过模型流的回答，以原子替换事件展示。
+                    yield _sse_event(
+                        "replace",
+                        {"request_id": request_id, "content": answer, "safety": None},
+                    )
+                elif answer != "".join(visible_parts):
+                    # 模型流结束后应用引用白名单和依据段落清洗，确保客户端正文与最终权威版本一致。
                     yield _sse_event(
                         "replace",
                         {"request_id": request_id, "content": answer, "safety": None},
@@ -422,6 +667,15 @@ async def chat_stream(
                             role="assistant",
                             content=answer,
                             citations=citations_raw,
+                            assistant_meta={
+                                "intent": meta.get("intent", "knowledge_qa"),
+                                "evidence": meta.get("evidence", []),
+                                "cards": meta.get("cards", []),
+                                "execution_trace": meta.get("execution_trace", []),
+                                "retrieval_status": meta.get("retrieval_status", "not_called"),
+                                "answer_basis": meta.get("answer_basis", []),
+                                "retrieved_count": meta.get("retrieved_count", 0),
+                            },
                             token_count=ctx.metadata.get("token_count", 0),
                         )
                     )

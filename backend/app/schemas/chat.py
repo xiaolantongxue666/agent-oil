@@ -30,11 +30,15 @@ class ChatResponse(BaseModel):
     retrieved_count: int = 0
     safety: dict[str, Any] | None = None
     intent: str = "knowledge_qa"
+    intent_confidence: float = 1.0
     secondary_intents: list[str] = Field(default_factory=list)
     evidence: list[dict[str, Any]] = Field(default_factory=list)
     cards: list[dict[str, Any]] = Field(default_factory=list)
     actions: list[dict[str, Any]] = Field(default_factory=list)
     trace_summary: list[str] = Field(default_factory=list)
+    execution_trace: list[dict[str, Any]] = Field(default_factory=list)
+    retrieval_status: str = "not_called"
+    answer_basis: list[str] = Field(default_factory=list)
     ai_generated: bool = True
 
 
@@ -53,6 +57,13 @@ class ChatMessageOut(BaseModel):
     role: str
     content: str
     citations: list[dict[str, Any]] = Field(default_factory=list)
+    intent: str = ""
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    cards: list[dict[str, Any]] = Field(default_factory=list)
+    execution_trace: list[dict[str, Any]] = Field(default_factory=list)
+    retrieval_status: str = ""
+    answer_basis: list[str] = Field(default_factory=list)
+    retrieved_count: int = 0
     created_at: str = ""
 
     model_config = {"from_attributes": True}

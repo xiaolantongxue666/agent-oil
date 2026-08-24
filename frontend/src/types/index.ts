@@ -252,11 +252,15 @@ export interface ChatResponseOut {
   retrieved_count: number
   safety: { safe: boolean; reason?: string } | null
   intent: string
+  intent_confidence: number
   secondary_intents: string[]
   evidence: Array<Record<string, unknown>>
   cards: AssistantCardOut[]
   actions: AssistantActionOut[]
   trace_summary: string[]
+  execution_trace: Array<{ step: string; status: string; summary: string }>
+  retrieval_status: string
+  answer_basis: string[]
   ai_generated: boolean
 }
 
@@ -287,6 +291,13 @@ export interface ChatMessageOut {
   role: string
   content: string
   citations: Record<string, unknown>[]
+  intent?: string
+  evidence?: Array<Record<string, unknown>>
+  cards?: AssistantCardOut[]
+  execution_trace?: Array<{ step: string; status: string; summary: string }>
+  retrieval_status?: string
+  answer_basis?: string[]
+  retrieved_count?: number
   created_at: string
 }
 

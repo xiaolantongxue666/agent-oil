@@ -33,6 +33,7 @@ class ChatMessage(Base, PKMixin, TimestampMixin):
     role: Mapped[str] = mapped_column(String(16))  # user / assistant / system
     content: Mapped[str] = mapped_column(Text)
     citations: Mapped[list[Any]] = mapped_column(JSONBType, default=list)
+    assistant_meta: Mapped[dict[str, Any]] = mapped_column(JSONBType, default=dict)
     knowledge_points: Mapped[list[Any]] = mapped_column(JSONBType, default=list)
     safety_tip: Mapped[str] = mapped_column(Text, default="")
     token_count: Mapped[int] = mapped_column(Integer, default=0)

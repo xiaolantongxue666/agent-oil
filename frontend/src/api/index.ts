@@ -182,11 +182,15 @@ export interface ChatStreamMeta {
   session_id: number
   request_id?: string
   intent?: string
+  intent_confidence?: number
   secondary_intents?: string[]
   evidence?: Array<Record<string, unknown>>
   cards?: Array<{ title: string; route: string }>
   actions?: Array<Record<string, unknown>>
   trace_summary?: string[]
+  execution_trace?: Array<{ step: string; status: string; summary: string }>
+  retrieval_status?: string
+  answer_basis?: string[]
   retrieved_count?: number
   citations?: Array<Record<string, unknown>>
   safety?: { safe: boolean; reason?: string; category?: string } | null
@@ -195,6 +199,12 @@ export interface ChatStreamMeta {
 export interface ChatStreamEvents {
   onStart?: (payload: { session_id: number; request_id: string }) => void
   onStatus?: (payload: { request_id: string; message: string }) => void
+  onProcess?: (payload: {
+    request_id: string
+    step: string
+    status: string
+    summary: string
+  }) => void
   onMeta?: (meta: ChatStreamMeta) => void
   onDelta?: (content: string) => void
   onSources?: (payload: {
@@ -267,6 +277,13 @@ export async function chatStream(
       events.onStatus?.({
         request_id: String(payload.request_id ?? ''),
         message: String(payload.message ?? ''),
+      })
+    } else if (eventName === 'process') {
+      events.onProcess?.({
+        request_id: String(payload.request_id ?? ''),
+        step: String(payload.step ?? ''),
+        status: String(payload.status ?? ''),
+        summary: String(payload.summary ?? ''),
       })
     } else if (eventName === 'meta') events.onMeta?.(payload as unknown as ChatStreamMeta)
     else if (eventName === 'delta') events.onDelta?.(String(payload.content ?? ''))

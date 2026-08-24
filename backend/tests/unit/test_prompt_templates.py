@@ -24,13 +24,14 @@ qa_nodes = importlib.import_module("app.workflow.nodes.qa_nodes")
 def test_runtime_prompt_catalog_covers_all_model_chains():
     codes = {item.code for item in PROMPT_DEFINITIONS}
 
-    assert len(codes) == len(PROMPT_DEFINITIONS) == 13
+    assert len(codes) == len(PROMPT_DEFINITIONS) == 14
     assert {
         "structured_output_contract",
         "structured_output_repair",
         "qa_query_rewrite",
         "qa_answer",
         "qa_evidence_boundary",
+        "qa_evidence_verify",
         "training_strategy",
         "training_scenario",
         "training_intermediate_evaluation",
@@ -134,6 +135,19 @@ async def test_answer_node_uses_verified_source_metadata_for_professional_basis(
                         "**【专业依据】**\n"
                         "[1] 埋地管道位置识别 —— 来源：教学模拟资料"
                     )
+                },
+            )()
+
+        async def chat_structured(self, _messages, **_kwargs):
+            return type(
+                "StructuredResponse",
+                (),
+                {
+                    "success": True,
+                    "data": {
+                        "supported_knowledge_indexes": [1],
+                        "supported_business_indexes": [],
+                    },
                 },
             )()
 

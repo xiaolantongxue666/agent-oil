@@ -18,11 +18,35 @@ const props = withDefaults(defineProps<{
 const intentLabels: Record<string, string> = {
   knowledge_qa: '专业知识问答', ability_diagnosis: '能力诊断', adaptive_learning: '自适应学习',
   training_recommendation: '实训推荐', training_review: '实训复盘', position_capability: '岗位能力',
+  conversation: '日常对话', text_assistance: '文本处理',
 }
 function intentLabel(intent?: string) { return intentLabels[intent || ''] || '学习咨询' }
 function traceLabel(trace?: string[]) {
   if (!trace?.length) return ''
   return trace.map((item) => ({ ability_profile_loaded: '已读取个人能力画像', adaptive_path_loaded: '已生成学习路径', training_recommendations_loaded: '已生成实训推荐', training_review_loaded: '已读取最近实训', safety_blocked_before_business_data: '安全校验已拦截业务数据', }[item] || (item.startsWith('published_positions_loaded') ? '已读取已发布岗位图谱' : '已完成受控查询'))).join(' · ')
+}
+
+const retrievalStatusLabels: Record<string, string> = {
+  pending: '等待判断是否需要知识库',
+  not_called: '未调用知识库',
+  retrieved: '已检索知识库，正在核验采用依据',
+  used: '已采用知识库依据',
+  retrieved_not_used: '已检索但未采用候选内容',
+  no_results: '知识库未找到可用内容',
+  failed: '知识库检索失败',
+  blocked: '安全校验已阻止资料输出',
+}
+const answerBasisLabels: Record<string, string> = {
+  business_data: '业务功能结果',
+  business_function_error: '业务功能错误信息',
+  knowledge_base: '知识库依据',
+  conversation_context: '会话上下文',
+}
+function retrievalStatusLabel(status?: string) {
+  return retrievalStatusLabels[status || ''] || ''
+}
+function answerBasisLabel(items?: string[]) {
+  return (items || []).map((item) => answerBasisLabels[item] || item).join('、')
 }
 
 interface DisplayMessage {
@@ -35,10 +59,14 @@ interface DisplayMessage {
   evidence?: Array<Record<string, unknown>>
   cards?: AssistantCardOut[]
   trace?: string[]
+  executionTrace?: Array<{ step: string; status: string; summary: string }>
+  retrievalStatus?: string
+  answerBasis?: string[]
   thinking?: boolean
   streaming?: boolean
   statusText?: string
   requestId?: string
+  showProcess?: boolean
 }
 
 const messages = ref<DisplayMessage[]>([])
@@ -85,6 +113,13 @@ async function loadSession(session: ChatSessionOut) {
       role: m.role as 'user' | 'assistant',
       content: m.content,
       citations: (m.citations || []) as unknown as CitationOut[],
+      intent: m.intent,
+      evidence: m.evidence,
+      cards: m.cards,
+      executionTrace: m.execution_trace,
+      retrievalStatus: m.retrieval_status,
+      answerBasis: m.answer_basis,
+      retrievedCount: m.retrieved_count,
     }))
     await scrollToBottom()
   } catch {
@@ -148,7 +183,7 @@ async function sendMessage() {
     content: '',
     thinking: true,
     streaming: true,
-    statusText: `正在连接${props.assistantTitle}...`,
+    statusText: '正在提交问题...',
   }
   messages.value.push(assistantMsg)
   await scrollToBottom()
@@ -164,12 +199,34 @@ async function sendMessage() {
         if (generationId !== generationSequence) return
         assistantMsg.statusText = payload.message
       },
+      onProcess: (payload) => {
+        if (generationId !== generationSequence || !payload.step) return
+        const steps = assistantMsg.executionTrace || []
+        const index = steps.findIndex((item) => item.step === payload.step)
+        const current = {
+          step: payload.step,
+          status: payload.status,
+          summary: payload.summary,
+        }
+        if (index >= 0) steps.splice(index, 1, current)
+        else steps.push(current)
+        assistantMsg.executionTrace = [...steps]
+        assistantMsg.statusText = payload.summary
+        scrollToBottom()
+      },
       onMeta: (meta: ChatStreamMeta) => {
         if (generationId !== generationSequence) return
         currentSessionId.value = meta.session_id
         activeSessionId.value = meta.session_id
         assistantMsg.intent = meta.intent
         assistantMsg.trace = meta.trace_summary
+        // 仅在 meta 实际携带步骤时覆盖；避免初始 meta 的空数组
+        // 清空已由 onProcess 逐步累积的执行过程。
+        if (meta.execution_trace?.length) {
+          assistantMsg.executionTrace = meta.execution_trace
+        }
+        assistantMsg.retrievalStatus = meta.retrieval_status
+        assistantMsg.answerBasis = meta.answer_basis
         assistantMsg.evidence = meta.evidence
         assistantMsg.cards = meta.cards as AssistantCardOut[] | undefined
         assistantMsg.retrievedCount = meta.retrieved_count
@@ -181,7 +238,6 @@ async function sendMessage() {
       onDelta: (content: string) => {
         if (generationId !== generationSequence) return
         assistantMsg.thinking = false
-        assistantMsg.statusText = '正在生成回答...'
         assistantMsg.content += content
         scrollToBottom()
       },
@@ -378,7 +434,7 @@ onMounted(() => {
             <el-tag type="warning" effect="dark">AI 生成内容</el-tag>
           </div>
           <p class="text-secondary" style="margin: 0">
-            基于 RAG 检索增强生成。回答仅供学习参考，请结合引用来源核验，不替代现场规程和教师判断。
+            根据用户意图调用对应学习功能；仅在任务需要时检索知识库。回答仅供学习参考，不替代现场规程和教师判断。
           </p>
         </div>
 
@@ -408,27 +464,57 @@ onMounted(() => {
                 {{ msg.role === 'user' ? '我的问题' : props.assistantTitle }}
                 <el-tag v-if="msg.role === 'assistant'" size="small" type="warning" effect="plain">AI 生成</el-tag>
               </div>
-              <div v-if="msg.role === 'assistant' && msg.thinking" class="msg-content typing">
-                {{ msg.statusText || '正在检索并生成回答...' }}
-              </div>
-              <div v-else-if="msg.role === 'assistant'" class="msg-content md-content" v-html="renderMd(msg.content)" />
-              <div v-else class="msg-content" v-text="msg.content" />
+
+              <!-- 思考区：生成过程中（thinking / streaming）在答案上方实时展示状态 + 思考 + 步骤 -->
               <div
-                v-if="msg.role === 'assistant' && msg.streaming && !msg.thinking"
-                class="stream-progress"
-                role="status"
-                aria-live="polite"
+                v-if="msg.role === 'assistant' && (msg.thinking || msg.streaming)"
+                class="thinking-phase"
               >
-                <span class="stream-cursor" aria-hidden="true"></span>
-                {{ msg.statusText || '正在生成回答...' }}
+                <div class="thinking-status">
+                  <span v-if="msg.streaming && !msg.thinking" class="stream-cursor" aria-hidden="true"></span>
+                  <span class="typing">{{ msg.statusText || (msg.thinking ? '正在识别意图并调用对应功能...' : '正在生成回答...') }}</span>
+                </div>
+                <div v-if="msg.executionTrace?.length" class="thinking-steps">
+                  <div v-for="(step, si) in msg.executionTrace" :key="`${step.step}-${si}`" class="process-step">
+                    <span class="process-state" :class="step.status">{{ step.status === 'failed' || step.status === 'blocked' ? '!' : step.status === 'skipped' ? '−' : step.status === 'waiting' || step.status === 'running' ? '…' : '✓' }}</span>
+                    <span>{{ step.summary }}</span>
+                  </div>
+                </div>
               </div>
 
-              <div v-if="msg.intent" class="assistant-meta">
+              <div v-if="msg.role === 'assistant' && !msg.thinking" class="msg-content md-content" v-html="renderMd(msg.content)" />
+              <div v-else-if="msg.role === 'user'" class="msg-content" v-text="msg.content" />
+
+              <!-- 生成完成后：意图标签 -->
+              <div v-if="msg.intent && !msg.thinking" class="assistant-meta">
                 <el-tag size="small" type="success">意图：{{ intentLabel(msg.intent) }}</el-tag>
-                <span v-if="msg.trace?.length" class="text-secondary">{{ traceLabel(msg.trace) }}</span>
+                <span v-if="!msg.executionTrace?.length && msg.trace?.length" class="text-secondary">{{ traceLabel(msg.trace) }}</span>
+              </div>
+
+              <!-- 生成完成后：可折叠的处理过程回看 -->
+              <div
+                v-if="msg.executionTrace?.length && !msg.thinking && !msg.streaming && msg.showProcess"
+                class="assistant-process"
+              >
+                <div class="process-title">处理过程</div>
+                <div v-for="(step, si) in msg.executionTrace" :key="`${step.step}-${si}`" class="process-step">
+                  <span class="process-state" :class="step.status">{{ step.status === 'failed' || step.status === 'blocked' ? '!' : step.status === 'skipped' ? '−' : step.status === 'waiting' || step.status === 'running' ? '…' : '✓' }}</span>
+                  <span>{{ step.summary }}</span>
+                </div>
+              </div>
+              <div
+                v-if="msg.executionTrace?.length && !msg.thinking && !msg.streaming"
+                class="process-toggle"
+                @click="msg.showProcess = !msg.showProcess"
+              >
+                {{ msg.showProcess ? '收起处理过程 ▲' : '查看处理过程 ▼' }}
+              </div>
+              <div v-if="(msg.retrievalStatus && msg.retrievalStatus !== 'not_called') || msg.answerBasis?.length" class="assistant-basis">
+                <span v-if="msg.retrievalStatus && msg.retrievalStatus !== 'not_called'">知识库：{{ retrievalStatusLabel(msg.retrievalStatus) }}</span>
+                <span v-if="msg.answerBasis?.length">回答依据：{{ answerBasisLabel(msg.answerBasis) }}</span>
               </div>
               <div v-if="msg.evidence?.length" class="assistant-evidence">
-                依据：{{ msg.evidence.map((item) => String(item.title || item.type || '业务事实')).join('；') }}
+                业务依据：{{ msg.evidence.map((item) => String(item.title || item.type || '业务事实')).join('；') }}
               </div>
               <div v-if="msg.cards?.length" class="assistant-cards">
                 <el-button v-for="card in msg.cards" :key="card.route + card.title" size="small" @click="router.push(card.route)">
@@ -444,7 +530,7 @@ onMounted(() => {
               <!-- 引用来源 -->
               <div v-if="msg.citations && msg.citations.length" class="citations">
                 <div class="cite-header">
-                  📖 引用来源（{{ msg.retrievedCount }} 条检索）
+                  📖 已核验回答来源（{{ msg.citations.length }} 条<template v-if="msg.retrievedCount !== undefined">；检索候选 {{ msg.retrievedCount }} 条</template>）
                 </div>
                 <div
                   v-for="(cite, ci) in msg.citations"
@@ -726,14 +812,6 @@ onMounted(() => {
   white-space: pre-wrap;
   line-height: 1.6;
 }
-.stream-progress {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-  color: var(--ots-text-secondary);
-  font-size: 12px;
-}
 .stream-cursor {
   width: 7px;
   height: 14px;
@@ -743,6 +821,30 @@ onMounted(() => {
 }
 @keyframes stream-blink {
   50% { opacity: 0.2; }
+}
+/* 思考区：生成期间实时展示状态文字 + 过程步骤 */
+.thinking-phase {
+  background: rgba(25, 118, 210, 0.05);
+  border: 1px solid rgba(25, 118, 210, 0.15);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.thinking-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.thinking-steps {
+  border-top: 1px solid rgba(25, 118, 210, 0.1);
+  padding-top: 6px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+.thinking-steps .process-step {
+  padding: 2px 0;
 }
 /* Markdown 渲染样式 */
 .md-content {
@@ -831,6 +933,30 @@ onMounted(() => {
 }
 .assistant-meta, .assistant-cards { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; font-size: 11px; }
 .assistant-evidence { margin-top: 8px; padding: 6px 8px; border-radius: 6px; background: #fff; font-size: 12px; color: var(--ots-text-secondary); }
+.assistant-process { margin-top: 8px; padding: 8px 10px; border-radius: 6px; background: #fff; font-size: 12px; }
+.process-toggle {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ots-text-secondary);
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+  transition: color 0.15s, background 0.15s;
+}
+.process-toggle:hover {
+  color: var(--ots-primary, #1976d2);
+  background: rgba(11, 95, 107, 0.06);
+}
+.process-title { margin-bottom: 4px; font-weight: 600; color: var(--ots-text-secondary); }
+.process-step { display: flex; gap: 6px; align-items: flex-start; padding: 2px 0; }
+.process-state { width: 14px; flex: 0 0 14px; color: var(--ots-success, #2e7d32); font-weight: 700; }
+.process-state.failed { color: var(--ots-danger, #c62828); }
+.process-state.blocked { color: var(--ots-danger, #c62828); }
+.process-state.skipped { color: var(--ots-text-secondary); }
+.process-state.running, .process-state.waiting { color: var(--ots-primary, #1976d2); }
+.assistant-basis { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; color: var(--ots-text-secondary); font-size: 12px; }
 .citations {
   margin-top: 10px;
   border-top: 1px solid var(--ots-border);

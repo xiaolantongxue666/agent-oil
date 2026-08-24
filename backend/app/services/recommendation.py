@@ -59,14 +59,28 @@ class RecommendationService:
 
         if not ability_scores:
             # 无能力数据：推荐入门任务
-            return await self._recommend_beginner_tasks(db, student_id)
+            recommendations = await self._recommend_beginner_tasks(db, student_id)
+            if recommendations:
+                return recommendations
+            completed_task_ids = await self._get_completed_task_ids(db, student_id)
+            return await self._recommend_retry_tasks(db, completed_task_ids, {})
 
         # 2. 找薄弱能力
         weak_abilities = self._find_weak_abilities(ability_scores)
 
         if not weak_abilities:
             # 无薄弱项：推荐进阶任务
-            return await self._recommend_advanced_tasks(db, student_id, ability_scores)
+            recommendations = await self._recommend_advanced_tasks(
+                db, student_id, ability_scores
+            )
+            if recommendations:
+                return recommendations
+            completed_task_ids = await self._get_completed_task_ids(db, student_id)
+            return await self._recommend_retry_tasks(
+                db,
+                completed_task_ids,
+                ability_scores,
+            )
 
         # 3. 为每个薄弱能力找推荐任务
         recommendations: list[RecommendationItem] = []
@@ -111,7 +125,79 @@ class RecommendationService:
             )
             recommendations.extend(extra)
 
+        # 所有已发布任务都完成时，给出针对薄弱能力的复训建议，
+        # 避免“推荐功能执行成功但结果为空”。复训不会覆盖历史训练记录。
+        if not recommendations and completed_task_ids:
+            recommendations = await self._recommend_retry_tasks(
+                db,
+                completed_task_ids,
+                ability_scores,
+            )
+
         return recommendations
+
+    async def _recommend_retry_tasks(
+        self,
+        db: AsyncSession,
+        completed_task_ids: set[int],
+        ability_scores: dict[str, dict[str, Any]],
+    ) -> list[RecommendationItem]:
+        """从已完成且仍发布的任务中选择一个薄弱能力复训项。"""
+
+        if not completed_task_ids:
+            return []
+        tasks = (
+            await db.execute(
+                select(TrainingTask).where(
+                    TrainingTask.id.in_(completed_task_ids),
+                    TrainingTask.status == TaskStatus.published,
+                )
+            )
+        ).scalars().all()
+        if not tasks:
+            return []
+
+        ranked_abilities = sorted(
+            ability_scores.items(),
+            key=lambda item: float(item[1].get("score", 0.0)),
+        )
+        ability_rank = {key: index for index, (key, _) in enumerate(ranked_abilities)}
+
+        def _task_rank(task: TrainingTask) -> tuple[int, int, int]:
+            targets = task.target_abilities or []
+            weakest_rank = min(
+                (ability_rank.get(str(key), len(ability_rank)) for key in targets),
+                default=len(ability_rank),
+            )
+            return weakest_rank, task.difficulty, task.id
+
+        task = min(tasks, key=_task_rank)
+        target_key = min(
+            (str(key) for key in (task.target_abilities or [])),
+            key=lambda key: ability_rank.get(key, len(ability_rank)),
+            default=(ranked_abilities[0][0] if ranked_abilities else ""),
+        )
+        score_info = ability_scores.get(target_key, {})
+        target_name = str(score_info.get("name", "综合能力"))
+        current_score = float(score_info.get("score", 0.0))
+        reason = (
+            f"【教学模拟】当前没有未完成的已发布实训。"
+            f"建议复训「{task.title}」，继续强化「{target_name}」能力。"
+        )
+        return [
+            RecommendationItem(
+                task_id=task.id,
+                task_code=task.code,
+                task_title=task.title,
+                target_ability=target_key,
+                target_ability_name=target_name,
+                reason_code="retry",
+                reason_text=reason,
+                difficulty=task.difficulty,
+                estimated_minutes=task.estimated_minutes,
+                current_ability_score=current_score,
+            )
+        ]
 
     async def _get_ability_scores(
         self, db: AsyncSession, student_id: int

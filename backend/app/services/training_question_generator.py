@@ -118,19 +118,37 @@ class TrainingQuestionGenerator:
     def _normalise_question(raw: Any, task: TrainingTask, index: int) -> DraftQuestion:
         if not isinstance(raw, dict):
             raise ValueError("question must be object")
+
+        # ===== 兼容字段别名 =====
+        # 题干：优先 stem，回退 question（模型常用别名）
+        stem = str(raw.get("stem") or raw.get("question") or "").strip()
+        if not stem:
+            raise ValueError("stem/question field is empty")
+
+        # ===== 兼容 options 容器：list 或 dict =====
         options_raw = raw.get("options")
+        if isinstance(options_raw, dict):
+            # 模型把 options 输出为 {"A": {...}, "B": {...}, ...}，按键排序转为 list
+            options_raw = [
+                {"key": str(k), **v} if isinstance(v, dict) else v
+                for k, v in sorted(options_raw.items())
+            ]
         if not isinstance(options_raw, list) or len(options_raw) != 4:
             raise ValueError("exactly four options required")
 
         keys = ("A", "B", "C", "D")
         options: list[dict[str, Any]] = []
         for option_index, item in enumerate(options_raw):
-            if not isinstance(item, dict) or not str(item.get("content") or "").strip():
+            if not isinstance(item, dict):
+                raise ValueError("invalid option")
+            # 选项文本：优先 content，回退 text（模型常用别名）
+            option_content = str(item.get("content") or item.get("text") or "").strip()
+            if not option_content:
                 raise ValueError("invalid option")
             options.append(
                 {
                     "key": keys[option_index],
-                    "content": str(item["content"]).strip(),
+                    "content": option_content,
                     "score": min(max(int(item.get("score") or 0), 0), 100),
                     "feedback": str(item.get("feedback") or "").strip(),
                     "is_correct": bool(item.get("is_correct")),
@@ -155,7 +173,7 @@ class TrainingQuestionGenerator:
             ability_key = task_abilities[index % len(task_abilities)] if task_abilities else AbilityKey.safety_awareness.value
         return DraftQuestion.model_validate(
             {
-                "stem": str(raw.get("stem") or "").strip(),
+                "stem": stem,
                 "ability_key": ability_key,
                 "knowledge_point": str(raw.get("knowledge_point") or "岗位规范判断").strip(),
                 "explanation": str(raw.get("explanation") or "请依据任务知识和权威教学资料判断。").strip(),

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -21,6 +22,8 @@ _MOCK_TAG = "【教学模拟】"
 
 def _looks_like_json_request(messages: list[LLMMessage]) -> bool:
     """判断当前对话是否要求返回 JSON。"""
+    if _keyword_in(messages, "supported_knowledge_indexes", "supported_business_indexes"):
+        return True
     for m in messages:
         if m.role.value == "system" and ("json" in m.content.lower() or "JSON" in m.content):
             return True
@@ -34,6 +37,18 @@ def _keyword_in(messages: list[LLMMessage], *keys: str) -> bool:
 
 def _structured_template(messages: list[LLMMessage]) -> dict[str, Any]:
     """根据对话关键词返回对应结构化模板（教学模拟数据）。"""
+    if _keyword_in(messages, "只读证据核验器", "supported_knowledge_indexes"):
+        blob = "\n".join(message.content for message in messages)
+        answer_match = re.search(r"<answer>\s*(.*?)\s*</answer>", blob, re.DOTALL)
+        answer = answer_match.group(1) if answer_match else ""
+        return {
+            "supported_knowledge_indexes": sorted(
+                {int(value) for value in re.findall(r"\[(\d+)\]", answer)}
+            ),
+            "supported_business_indexes": sorted(
+                {int(value) for value in re.findall(r"\[B(\d+)\]", answer, re.IGNORECASE)}
+            ),
+        }
     if _keyword_in(messages, "选择题题库", "单项选择题", "question_bank"):
         return {
             "questions": [
@@ -132,6 +147,13 @@ def _plain_reply(messages: list[LLMMessage]) -> str:
     """非结构化对话回复（教学模拟）。"""
     if _keyword_in(messages, "你好", "hello", "在吗", "ping"):
         return _MOCK_TAG + "你好，我是油训智安教学助手（离线演示模式）。"
+    blob = "\n".join(message.content for message in messages)
+    business_indexes = sorted({int(value) for value in re.findall(r"\[B(\d+)\]", blob)})
+    markers = "".join(f"[B{index}]" for index in business_indexes)
+    if _keyword_in(messages, "[1] 标题："):
+        return _MOCK_TAG + f"已根据本轮实际证据组织回答{markers}，相关结论见资料[1]。"
+    if markers:
+        return _MOCK_TAG + f"已根据本轮业务功能结果组织回答{markers}。"
     return _MOCK_TAG + "已收到你的问题。在离线演示模式下，此回复为模拟内容，仅供功能演示。"
 
 
