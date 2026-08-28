@@ -89,6 +89,59 @@ async def test_gateway_structured_success():
     assert "llm_subscore" in result.data
 
 
+class _CapturingProvider(LLMProvider):
+    name = "capture"
+
+    def __init__(self) -> None:
+        self.last_messages: list[LLMMessage] = []
+        self.last_extra_body: dict | None = None
+
+    async def chat(self, messages, **kw):
+        self.last_messages = list(messages)
+        self.last_extra_body = kw.get("extra_body")
+        return LLMResponse(content='{"ok": true}', provider=self.name)
+
+    async def health(self):
+        return True
+
+
+async def test_structured_contract_injected_even_when_prompt_mentions_json():
+    """提示词已含 JSON 字样时，字段名契约仍必须注入（否则模型自选字段名）。"""
+    prov = _CapturingProvider()
+    gw = LLMGateway(prov, structured_retries=0)
+    msgs = [
+        LLMMessage.system("严格返回 JSON 对象，根字段为 questions。"),
+        LLMMessage.user("生成题目草稿"),
+    ]
+    result = await gw.chat_structured(
+        msgs,
+        schema_description='{"questions":[{"stem":"题干","options":[{"key":"A","content":"选项","is_correct":false}]}]}',
+    )
+    assert result.success is True
+    blob = "\n".join(m.content for m in prov.last_messages)
+    assert '"stem"' in blob
+    assert "schema 完全一致" in blob
+
+
+async def test_extra_body_is_forwarded_through_chat_and_structured():
+    """extra_body（如 qwen3 的 enable_thinking 开关）必须透传到 Provider。"""
+    prov = _CapturingProvider()
+    gw = LLMGateway(prov)
+
+    await gw.chat([LLMMessage.user("hi")], extra_body={"enable_thinking": False})
+    assert prov.last_extra_body == {"enable_thinking": False}
+
+    await gw.chat([LLMMessage.user("hi")])
+    assert prov.last_extra_body is None
+
+    await gw.chat_structured(
+        [LLMMessage.user("生成题目草稿")],
+        schema_description='{"questions":[]}',
+        extra_body={"enable_thinking": False},
+    )
+    assert prov.last_extra_body == {"enable_thinking": False}
+
+
 # ---------- Gateway 重试 ----------
 class _FailThenSucceed(LLMProvider):
     name = "flaky"

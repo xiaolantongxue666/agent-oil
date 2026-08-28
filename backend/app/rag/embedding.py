@@ -20,6 +20,10 @@ from app.core.logging import logger
 
 _TOKEN_RE = re.compile(r"[a-zA-Z0-9]+|[一-鿿]")
 
+# 单条输入安全长度：远小于 text-embedding-v3 的 8192 token 上限，
+# 按“1 个中文字符 ≈ 1 token”的保守估算再留余量，避免超长分块导致整批 400。
+_MAX_EMBED_CHARS = 6000
+
 
 def _tokenize(text: str) -> list[str]:
     """简易分词：拉丁词 + 中文字符。"""
@@ -95,18 +99,16 @@ class EmbeddingService:
 
     async def embed_query(self, text: str) -> list[float]:
         if self._backend == "api" and self._api_client is not None:
-            try:
-                return await self._api_embed(text)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Embedding API 调用失败，临时回退 Mock: {}", exc)
+            # 失败时直接抛错（由上层如 RetrieveNode 决定降级策略）。
+            # 静默回退 Mock 会让检索在无感知的情况下返回低相关结果。
+            return await self._api_embed(text)
         return self._embed_sync(text)
 
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if self._backend == "api" and self._api_client is not None:
-            try:
-                return await self._api_embed_batch(texts)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Embedding API 批量调用失败，临时回退 Mock: {}", exc)
+            # 失败时直接抛错：Mock 哈希向量一旦被索引管线持久化，
+            # 会以 vector_embedded=True 永久污染向量库且难以察觉。
+            return await self._api_embed_batch(texts)
         return [self._embed_sync(t) for t in texts]
 
     # ---- API 调用 ----
@@ -115,22 +117,36 @@ class EmbeddingService:
         model = self._settings.embedding_model
         resp = await self._api_client.embeddings.create(
             model=model,
-            input=text,
+            input=self._sanitize_text(text),
         )
         vec = resp.data[0].embedding
         if self._dim != len(vec):
             self._dim = len(vec)
         return [float(x) for x in vec]
 
+    @staticmethod
+    def _sanitize_text(text: str) -> str:
+        """规整单条输入：空串占位 + 截断到模型单条 token 上限以内的安全长度。
+
+        text-embedding-v3 单条输入上限 8192 token；超限（如异常超长分块）
+        会让整批请求 400 失败，空串同样会被拒绝。
+        """
+        cleaned = str(text or "").strip()
+        if not cleaned:
+            return "（空白内容）"
+        if len(cleaned) > _MAX_EMBED_CHARS:
+            return cleaned[:_MAX_EMBED_CHARS]
+        return cleaned
+
     async def _api_embed_batch(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
         model = self._settings.embedding_model
-        # 百炼 API 单次最多 25 条，分批处理
-        batch_size = 25
+        # 百炼 text-embedding-v3 单次最多 10 条输入，超限整批 400
+        batch_size = 10
         all_vecs: list[list[float]] = []
         for i in range(0, len(texts), batch_size):
-            batch = texts[i : i + batch_size]
+            batch = [self._sanitize_text(t) for t in texts[i : i + batch_size]]
             resp = await self._api_client.embeddings.create(
                 model=model,
                 input=batch,
@@ -179,9 +195,4 @@ def get_embedding_service() -> EmbeddingService:
     return _service
 
 
-def reset_embedding_service() -> None:
-    global _service
-    _service = None
-
-
-__all__ = ["EmbeddingService", "get_embedding_service", "reset_embedding_service"]
+__all__ = ["EmbeddingService", "get_embedding_service"]

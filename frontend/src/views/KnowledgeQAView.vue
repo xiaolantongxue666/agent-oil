@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ref, nextTick, onBeforeUnmount, onMounted } from 'vue'
+import { ref, computed, nextTick, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { chatApi, chatStream, knowledgeApi, type ChatStreamMeta } from '@/api'
 import MarkdownContent from '@/components/MarkdownContent.vue'
 import type { AssistantCardOut, ChatSessionOut, CitationOut, KnowledgeChunkDetailOut, KnowledgeItemOut } from '@/types'
 import { renderSafeMarkdown as renderMd } from '@/utils/safeMarkdown'
+import { useAuthStore } from '@/stores/auth'
 
 const props = withDefaults(defineProps<{
   compact?: boolean
@@ -15,15 +16,26 @@ const props = withDefaults(defineProps<{
   assistantTitle: '智能学习助手',
 })
 
+const authStore = useAuthStore()
+
+// 候选问题按角色区分：学生问个人学习，教师问班级学情与题库管理。
+const STUDENT_SUGGESTIONS = ['我的薄弱能力是什么？', '下一步学什么？', '推荐一个实训', '目标岗位需要什么能力？']
+const TEACHER_SUGGESTIONS = ['班级学情怎么样？', '学生各任务的掌握情况如何？', '题库质量如何？', '现在有多少待审核的题目？', '目标岗位需要什么能力？']
+const suggestedQuestions = computed(() => (authStore.isStaff ? TEACHER_SUGGESTIONS : STUDENT_SUGGESTIONS))
+const emptyDescription = computed(() =>
+  authStore.isStaff ? '试试问：班级学情怎么样？题库质量如何？也可以直接咨询专业知识' : '试试问：我的薄弱能力是什么？下一步学什么？推荐一个实训；目标岗位需要什么能力？',
+)
+
 const intentLabels: Record<string, string> = {
   knowledge_qa: '专业知识问答', ability_diagnosis: '能力诊断', adaptive_learning: '自适应学习',
   training_recommendation: '实训推荐', training_review: '实训复盘', position_capability: '岗位能力',
+  class_insight: '班级学情', question_bank_quality: '题库质量', role_guidance: '身份提示',
   conversation: '日常对话', text_assistance: '文本处理',
 }
 function intentLabel(intent?: string) { return intentLabels[intent || ''] || '学习咨询' }
 function traceLabel(trace?: string[]) {
   if (!trace?.length) return ''
-  return trace.map((item) => ({ ability_profile_loaded: '已读取个人能力画像', adaptive_path_loaded: '已生成学习路径', training_recommendations_loaded: '已生成实训推荐', training_review_loaded: '已读取最近实训', safety_blocked_before_business_data: '安全校验已拦截业务数据', }[item] || (item.startsWith('published_positions_loaded') ? '已读取已发布岗位图谱' : '已完成受控查询'))).join(' · ')
+  return trace.map((item) => ({ ability_profile_loaded: '已读取个人能力画像', adaptive_path_loaded: '已生成学习路径', training_recommendations_loaded: '已生成实训推荐', training_review_loaded: '已读取最近实训', safety_blocked_before_business_data: '安全校验已拦截业务数据', }[item] || (item.startsWith('role_guidance') ? '已提供角色使用指引' : item.startsWith('published_positions_loaded') ? '已读取已发布岗位图谱' : '已完成受控查询'))).join(' · ')
 }
 
 const retrievalStatusLabels: Record<string, string> = {
@@ -41,6 +53,7 @@ const answerBasisLabels: Record<string, string> = {
   business_function_error: '业务功能错误信息',
   knowledge_base: '知识库依据',
   conversation_context: '会话上下文',
+  role_guidance: '角色使用指引',
 }
 function retrievalStatusLabel(status?: string) {
   return retrievalStatusLabels[status || ''] || ''
@@ -440,13 +453,13 @@ onMounted(() => {
 
         <!-- 消息区域 -->
         <div class="ots-card chat-area" ref="chatBox">
-          <el-empty v-if="!messages.length" description="问知识、看能力、找学习路径或推荐实训" :image-size="100">
+          <el-empty description="问知识、看能力、找学习路径或推荐实训" :image-size="100">
             <template #description>
-              <p class="text-secondary">试试问：我的薄弱能力是什么？下一步学什么？推荐一个实训；目标岗位需要什么能力？</p>
+              <p class="text-secondary">{{ emptyDescription }}</p>
             </template>
             <div class="hint-tags">
               <el-tag
-                v-for="hint in ['我的薄弱能力是什么？', '下一步学什么？', '推荐一个实训', '目标岗位需要什么能力？']"
+                v-for="hint in suggestedQuestions"
                 :key="hint"
                 effect="plain"
                 class="hint-tag"

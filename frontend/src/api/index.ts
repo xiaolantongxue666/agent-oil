@@ -6,7 +6,6 @@ import type {
   AbilityGraphOut,
   AbilityProfileOut,
   ChatMessageOut,
-  ChatResponseOut,
   ChatSessionOut,
   KnowledgeItemOut,
   KnowledgeChunkListOut,
@@ -34,7 +33,6 @@ import type {
   TeachingPlanOut,
   TrainingSessionOut,
   TrainingTaskOut,
-  UserInfo,
   PositionDemandTrendOut,
   PositionGraphDraft,
   CurriculumProgramOut,
@@ -76,7 +74,6 @@ export interface PromptRevisionOut {
 export const authApi = {
   login: (username: string, password: string) =>
     request<LoginResult>({ method: 'post', url: '/auth/login', data: { username, password } }),
-  me: () => request<UserInfo>({ method: 'get', url: '/auth/me' }),
 }
 
 // ---- Admin ----
@@ -154,12 +151,6 @@ export const trainingApi = {
 
 // ---- Chat (RAG QA) ----
 export const chatApi = {
-  chat: (message: string, sessionId?: number) =>
-    request<ChatResponseOut>({
-      method: 'post',
-      url: '/chat',
-      data: { message, session_id: sessionId },
-    }),
   sessions: () =>
     request<ChatSessionOut[]>({
       method: 'get',
@@ -357,12 +348,6 @@ export const recommendationApi = {
     request<AdaptiveLearningPathOut>({ method: 'get', url: '/recommendation/adaptive-path' }),
 }
 
-// ---- Health ----
-export const healthApi = {
-  check: () =>
-    request<{ status: string; services: Record<string, string> }>({ method: 'get', url: '/health' }),
-}
-
 // ---- Knowledge ----
 export const knowledgeApi = {
   list: (params?: { ability?: string; source_type?: string; authority_only?: boolean; keyword?: string; knowledge_id?: string; page?: number; page_size?: number }) =>
@@ -425,17 +410,6 @@ export const teacherApi = {
     request<{ id: number; status: string }>({
       method: 'post',
       url: '/teacher/positions',
-      data: body,
-    }),
-  updatePosition: (positionId: number, body: {
-    name?: string
-    major?: string
-    description?: string
-    aliases?: string[]
-  }) =>
-    request<{ id: number; status: string }>({
-      method: 'put',
-      url: `/teacher/positions/${positionId}`,
       data: body,
     }),
   discoverPosition: (positionId: number, maxResults = 20, lookbackMonths = 0) =>
@@ -625,8 +599,6 @@ export const teacherApi = {
 export const programApi = {
   programs: () =>
     request<CurriculumProgramOut[]>({ method: 'get', url: '/teacher/programs' }),
-  detail: (programId: number) =>
-    request<CurriculumProgramOut>({ method: 'get', url: `/teacher/programs/${programId}` }),
   analysis: (programId: number, months = 12) =>
     request<ProgramAnalysisOut>({
       method: 'get',

@@ -7,28 +7,13 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 from fastapi import Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
 from app.core.logging import logger
-
-T = TypeVar("T")
-
-
-class SuccessResponse(BaseModel, Generic[T]):
-    success: bool = True
-    data: T | None = None
-
-
-class ErrorResponse(BaseModel):
-    success: bool = False
-    code: str
-    message: str
-    request_id: str
 
 
 class AppError(Exception):
@@ -46,8 +31,8 @@ def ok(data: Any = None) -> dict[str, Any]:
     return {"success": True, "data": jsonable_encoder(data)}
 
 
-def fail(code: str, message: str, request_id: str | None = None) -> dict[str, Any]:
-    """构造失败响应。"""
+def _fail(code: str, message: str, request_id: str | None = None) -> dict[str, Any]:
+    """构造失败响应（内部使用）。"""
     return {
         "success": False,
         "code": code,
@@ -60,35 +45,31 @@ def _new_request_id() -> str:
     return uuid.uuid4().hex
 
 
-def get_request_id(request: Request) -> str:
+def _get_request_id(request: Request) -> str:
     return request.headers.get("x-request-id") or _new_request_id()
 
 
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
-    rid = get_request_id(request)
+    rid = _get_request_id(request)
     logger.warning("AppError code={} msg={} rid={}", exc.code, exc.message, rid)
     return JSONResponse(
         status_code=exc.status_code,
-        content=fail(exc.code, exc.message, rid),
+        content=_fail(exc.code, exc.message, rid),
     )
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    rid = get_request_id(request)
+    rid = _get_request_id(request)
     logger.exception("Unhandled exception rid={} path={}", rid, request.url.path)
     return JSONResponse(
         status_code=500,
-        content=fail("INTERNAL_ERROR", "服务内部错误", rid),
+        content=_fail("INTERNAL_ERROR", "服务内部错误", rid),
     )
 
 
 __all__ = [
-    "SuccessResponse",
-    "ErrorResponse",
     "AppError",
     "ok",
-    "fail",
-    "get_request_id",
     "app_error_handler",
     "unhandled_exception_handler",
 ]

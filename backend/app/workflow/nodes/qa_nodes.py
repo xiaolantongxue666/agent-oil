@@ -441,6 +441,13 @@ class AnswerNode(BaseWorkflowNode):
         module_failure_only = bool(context.metadata.get("module_errors")) and not bool(
             context.metadata.get("business_evidence_count", 0)
         ) and not context.metadata.get("requires_knowledge_base", True)
+        role_hint_feature = str(
+            context.metadata.get("role_guidance_hint", "") or ""
+        ).strip()
+        role_hint_kind = str(
+            context.metadata.get("role_guidance_kind", "") or ""
+        ).strip()
+        role_guidance_answered = False
         recommendation_no_candidate = any(
             isinstance(item, dict)
             and item.get("module") == "training_recommendation"
@@ -455,7 +462,18 @@ class AnswerNode(BaseWorkflowNode):
             and context.intent == "training_recommendation"
             and len(context.metadata.get("business_evidence", [])) == 1
         )
-        if recommendation_only:
+        if role_hint_feature:
+            # 角色错位提问（教师问学生功能 / 学生问教师功能）：确定性输出
+            # 本角色使用指引，不经模型生成。
+            answer = (
+                self._build_student_guidance_answer(role_hint_feature)
+                if role_hint_kind == "teacher_feature"
+                else self._build_teacher_guidance_answer(role_hint_feature)
+            )
+            role_guidance_answered = True
+            if sink is not None:
+                await sink.put(answer)
+        elif recommendation_only:
             answer = recommendation_answer
             if sink is not None:
                 await sink.put(answer)
@@ -541,7 +559,9 @@ class AnswerNode(BaseWorkflowNode):
         context.metadata["used_business_evidence_indexes"] = used_business_indexes
         context.metadata["evidence_verification_succeeded"] = verification_succeeded
         answer_basis: list[str] = []
-        if used_business_indexes or context.metadata.get("business_outcomes"):
+        if role_guidance_answered:
+            answer_basis.append("role_guidance")
+        elif used_business_indexes or context.metadata.get("business_outcomes"):
             answer_basis.append("business_data")
         elif context.metadata.get("module_errors"):
             answer_basis.append("business_function_error")
@@ -580,13 +600,48 @@ class AnswerNode(BaseWorkflowNode):
             (
                 "业务功能失败，已返回明确错误且未用知识库替代"
                 if module_failure_only
-                else "已基于实际执行结果生成回答"
+                else (
+                    "已提供教师端功能使用指引"
+                    if role_guidance_answered
+                    else "已基于实际执行结果生成回答"
+                )
             ),
         )
         context.metadata["answer"] = answer
         context.add_message("assistant", answer)
         context.next_node = "output_guard"
         return context
+
+    @staticmethod
+    def _build_teacher_guidance_answer(feature: str) -> str:
+        """教师误用学生端个人功能时的确定性使用指引（不经模型生成）。"""
+
+        return (
+            f"您当前使用的是教师/管理员账号，而「{feature}」是面向学生个人数据的功能，"
+            "系统不会为教师账号生成学生个人的画像、推荐或成绩明细。\n\n"
+            "教师端您可以：\n"
+            "- 班级教学实施复盘：查看班级整体学情、薄弱能力与共性错误；\n"
+            "- 实训任务与题库：管理实训任务、生成并审核题目；\n"
+            "- 学生列表：查看学生基本信息与学习进度。\n\n"
+            "如果您想咨询储气库专业知识（工艺、设备、安全规程等），可以直接提问，"
+            "我会基于平台知识库为您解答。"
+        )
+
+    @staticmethod
+    def _build_student_guidance_answer(feature: str) -> str:
+        """学生误用教师端教学管理功能时的确定性使用指引（不经模型生成）。"""
+
+        return (
+            f"您当前使用的是学生账号，而「{feature}」是教师端的教学管理功能，"
+            "仅教师/管理员可以查看班级整体学情与题库管理数据。\n\n"
+            "学生端您可以：\n"
+            "- 能力画像：查看个人能力诊断与薄弱项；\n"
+            "- 自适应学习：获取个人学习路径与下一步建议；\n"
+            "- 实训推荐：获取个性化实训任务推荐。\n\n"
+            "如果想了解班级整体情况，可以咨询任课教师；"
+            "储气库专业知识（工艺、设备、安全规程等）也可以直接提问，"
+            "我会基于平台知识库为您解答。"
+        )
 
     @staticmethod
     def _build_recommendation_answer(

@@ -60,5 +60,3 @@ export async function request<T = unknown>(config: AxiosRequestConfig): Promise<
   }
   throw body
 }
-
-export default service

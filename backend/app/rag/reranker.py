@@ -215,9 +215,4 @@ def get_reranker() -> RerankerService:
     return _reranker
 
 
-def reset_reranker() -> None:
-    global _reranker
-    _reranker = None
-
-
-__all__ = ["RerankerService", "get_reranker", "reset_reranker"]
+__all__ = ["RerankerService", "get_reranker"]

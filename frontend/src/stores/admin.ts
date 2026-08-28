@@ -25,5 +25,5 @@ export const useAdminStore = defineStore('admin', () => {
     return !code || !loaded.value || enabledFeatureCodes.value.has(code)
   }
 
-  return { features, loaded, loading, enabledFeatureCodes, loadFeatures, isEnabled }
+  return { loadFeatures, isEnabled }
 })

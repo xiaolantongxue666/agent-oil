@@ -187,6 +187,8 @@ async def chat(body: ChatRequest, user: CurrentUser, session: DBSession) -> dict
                 "requires_knowledge_base": assistant_result.requires_knowledge_base,
                 "execution_trace": list(assistant_result.execution_trace),
                 "module_errors": list(assistant_result.module_errors),
+                "role_guidance_hint": assistant_result.role_guidance_hint,
+                "role_guidance_kind": assistant_result.role_guidance_kind,
             }
             if assistant_result
             else {"requires_knowledge_base": False, "execution_trace": []}
@@ -418,6 +420,12 @@ async def chat_stream(
             "module_errors": (
                 list(assistant_result.module_errors) if assistant_result else []
             ),
+            "role_guidance_hint": (
+                assistant_result.role_guidance_hint if assistant_result else ""
+            ),
+            "role_guidance_kind": (
+                assistant_result.role_guidance_kind if assistant_result else ""
+            ),
         }
         ctx = WorkflowContext(
             user_id=workflow_args["user_id"],
@@ -436,6 +444,8 @@ async def chat_stream(
                 "requires_knowledge_base": workflow_args["requires_knowledge_base"],
                 "execution_trace": workflow_args["execution_trace"],
                 "module_errors": workflow_args["module_errors"],
+                "role_guidance_hint": workflow_args["role_guidance_hint"],
+                "role_guidance_kind": workflow_args["role_guidance_kind"],
                 "stream_sink": sink,
                 "process_sink": sink,
             },

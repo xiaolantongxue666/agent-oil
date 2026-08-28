@@ -23,20 +23,12 @@ export const useAuthStore = defineStore(
       return res
     }
 
-    async function fetchMe() {
-      try {
-        user.value = await authApi.me()
-      } catch {
-        logout()
-      }
-    }
-
     function logout() {
       token.value = ''
       user.value = null
     }
 
-    return { token, user, isAuthed, role, isAdmin, isStaff, isTeacher, login, fetchMe, logout }
+    return { token, user, isAuthed, role, isAdmin, isStaff, isTeacher, login, logout }
   },
   { persist: { key: 'ots-auth', storage: localStorage } },
 )

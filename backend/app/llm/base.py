@@ -105,6 +105,7 @@ class LLMProvider(ABC):
         temperature: float | None = None,
         max_tokens: int | None = None,
         timeout: float | None = None,
+        extra_body: dict[str, Any] | None = None,
         **_kwargs: Any,
     ) -> LLMResponse:
         """对话补全。"""
@@ -116,6 +117,7 @@ class LLMProvider(ABC):
         temperature: float | None = None,
         max_tokens: int | None = None,
         timeout: float | None = None,
+        extra_body: dict[str, Any] | None = None,
         **_kwargs: Any,
     ) -> AsyncIterator[str]:
         """流式对话补全：逐块产出文本片段。
@@ -127,6 +129,7 @@ class LLMProvider(ABC):
             temperature=temperature,
             max_tokens=max_tokens,
             timeout=timeout,
+            extra_body=extra_body,
         )
         if resp.content:
             yield resp.content

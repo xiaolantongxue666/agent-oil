@@ -71,6 +71,7 @@ class BailianProvider(LLMProvider):
         temperature: float | None = None,
         max_tokens: int | None = None,
         timeout: float | None = None,
+        extra_body: dict[str, Any] | None = None,
         **_kwargs: Any,
     ) -> LLMResponse:
         payload = [
@@ -86,6 +87,9 @@ class BailianProvider(LLMProvider):
                 kwargs_build["max_tokens"] = max_tokens
             if timeout is not None:
                 kwargs_build["timeout"] = timeout
+            if extra_body:
+                # 透传 OpenAI 兼容扩展参数（如 qwen3 的 enable_thinking 开关）
+                kwargs_build["extra_body"] = extra_body
             resp = await self._client.chat.completions.create(**kwargs_build)
         except APITimeoutError as exc:
             logger.warning("Bailian 调用超时")
@@ -142,6 +146,7 @@ class BailianProvider(LLMProvider):
         temperature: float | None = None,
         max_tokens: int | None = None,
         timeout: float | None = None,
+        extra_body: dict[str, Any] | None = None,
         **_kwargs: Any,
     ) -> AsyncIterator[str]:
         """流式对话补全（OpenAI 兼容 SSE）。异常映射与 chat 一致。"""
@@ -157,6 +162,8 @@ class BailianProvider(LLMProvider):
                 kwargs_build["max_tokens"] = max_tokens
             if timeout is not None:
                 kwargs_build["timeout"] = timeout
+            if extra_body:
+                kwargs_build["extra_body"] = extra_body
             stream = await self._client.chat.completions.create(**kwargs_build)
         except APITimeoutError as exc:
             logger.warning("Bailian 流式调用超时")

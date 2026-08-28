@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import ssl
 from datetime import UTC, datetime
+from types import SimpleNamespace
+
+import httpx
+import pytest
 
 from app.services.position_discovery import (
     _extract_candidate_links,
     _hidden_form_fields,
+    _is_certificate_verification_error,
     _job_relevant_text,
     _match_score,
     _month_search_windows,
@@ -16,8 +22,102 @@ from app.services.position_discovery import (
     _parse_rss,
     _parse_sinopec_social_payload,
     extract_publication_date,
+    PositionDiscoveryService,
 )
 from app.services.position_graph_analysis import ABILITY_KEYS, normalize_graph_draft
+
+
+def _cert_wrapped_connect_error() -> httpx.ConnectError:
+    """构造与 httpx 一致的包装：ConnectError(__cause__=SSLCertVerificationError)。"""
+
+    try:
+        raise ssl.SSLCertVerificationError("certificate verify failed: incomplete chain")
+    except ssl.SSLCertVerificationError as inner:
+        outer = httpx.ConnectError(str(inner))
+        outer.__cause__ = inner
+        return outer
+
+
+def test_certificate_error_detection_walks_exception_chain():
+    assert _is_certificate_verification_error(_cert_wrapped_connect_error())
+    assert not _is_certificate_verification_error(
+        httpx.ConnectError("connection refused")
+    )
+
+
+class _CertFailingClient:
+    """POST 一律抛证书校验失败的 ConnectError，模拟容器内不完整证书链。"""
+
+    timeout = 5.0
+
+    async def post(self, url, json=None):  # noqa: A002
+        raise _cert_wrapped_connect_error()
+
+
+class _FallbackClient:
+    """替代 httpx.AsyncClient 的记录型降级客户端。"""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict]] = []
+        self.kwargs: dict | None = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def post(self, url, json=None):  # noqa: A002
+        self.calls.append((url, json))
+        return SimpleNamespace(status_code=200, raise_for_status=lambda: None)
+
+
+async def test_official_api_retries_without_verification_on_certificate_error(
+    monkeypatch,
+):
+    """官方接口遇证书链异常时降级重试；URL 与载荷原样透传。"""
+
+    fallback = _FallbackClient()
+    captured_kwargs: dict = {}
+
+    def _fake_async_client(**kwargs):
+        captured_kwargs.update(kwargs)
+        return fallback
+
+    monkeypatch.setattr(httpx, "AsyncClient", _fake_async_client)
+    service = PositionDiscoveryService()
+
+    response = await service._post_official_api(
+        _CertFailingClient(),
+        "https://job.sinopec.com/api/sz/socialJobInfo/selectSocialJobVoByPage",
+        json_payload={"searchLike": "LNG", "endTag": "N"},
+    )
+
+    assert response.status_code == 200
+    assert captured_kwargs["verify"] is False
+    assert fallback.calls == [
+        (
+            "https://job.sinopec.com/api/sz/socialJobInfo/selectSocialJobVoByPage",
+            {"searchLike": "LNG", "endTag": "N"},
+        )
+    ]
+
+
+async def test_official_api_does_not_retry_on_plain_connect_error():
+    """普通连接错误（断网/DNS）不降级，直接抛出以保持“未绕过限制”的语义。"""
+
+    class _DeadClient:
+        timeout = 5.0
+
+        async def post(self, url, json=None):  # noqa: A002
+            raise httpx.ConnectError("connection refused")
+
+    with pytest.raises(httpx.ConnectError):
+        await PositionDiscoveryService()._post_official_api(
+            _DeadClient(),
+            "https://job.sinopec.com/api/x",
+            json_payload={},
+        )
 
 
 def test_search_rss_keeps_only_allowlisted_sources():

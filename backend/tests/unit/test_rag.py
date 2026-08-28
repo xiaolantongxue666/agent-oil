@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from app.rag.chunker import chunk_text
@@ -95,6 +97,64 @@ def test_embedding_mock_normalized():
     v = EmbeddingService()._mock_embed("巡检 安全 阀门")
     norm = math.sqrt(sum(x * x for x in v))
     assert abs(norm - 1.0) < 1e-6
+
+
+# ---------- Embedding API 输入防护与失败传播 ----------
+def test_sanitize_text_placeholders_empty_and_truncates_oversize():
+    assert EmbeddingService._sanitize_text("") == "（空白内容）"
+    assert EmbeddingService._sanitize_text(None) == "（空白内容）"
+    cleaned = EmbeddingService._sanitize_text("压" * 7000)
+    assert len(cleaned) == 6000
+    assert EmbeddingService._sanitize_text("正常内容") == "正常内容"
+
+
+class _RecordingEmbeddings:
+    """记录每批 input 长度并返回可排序的伪 Embedding 响应。"""
+
+    def __init__(self) -> None:
+        self.batch_sizes: list[int] = []
+
+    async def create(self, *, model, input):  # noqa: A002
+        self.batch_sizes.append(len(input))
+        return SimpleNamespace(
+            data=[
+                SimpleNamespace(index=i, embedding=[float(len(input)), 1.0])
+                for i in range(len(input))
+            ]
+        )
+
+
+def _api_service(recorder: _RecordingEmbeddings) -> EmbeddingService:
+    svc = EmbeddingService()
+    svc._backend = "api"
+    svc._api_client = SimpleNamespace(embeddings=recorder)
+    return svc
+
+
+async def test_api_embed_batch_splits_into_batches_of_ten():
+    recorder = _RecordingEmbeddings()
+    svc = _api_service(recorder)
+    texts = ["内容"] * 23 + ["", "长" * 7000]
+
+    vectors = await svc.embed_documents(texts)
+
+    # 25 条输入按端点单次上限 10 条切分，且空串/超长文本不会导致整批失败
+    assert recorder.batch_sizes == [10, 10, 5]
+    assert len(vectors) == 25
+
+
+async def test_api_embed_failure_raises_instead_of_mock_fallback():
+    class _FailingEmbeddings:
+        async def create(self, **_kwargs):
+            raise RuntimeError("embedding endpoint unavailable")
+
+    svc = _api_service(_FailingEmbeddings())
+
+    # API 后端下失败必须抛错：静默回退 Mock 会把哈希假向量永久写入向量库
+    with pytest.raises(RuntimeError):
+        await svc.embed_documents(["正文一段"])
+    with pytest.raises(RuntimeError):
+        await svc.embed_query("查询语句")
 
 
 # ---------- Reranker Mock ----------

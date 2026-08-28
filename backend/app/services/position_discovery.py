@@ -7,6 +7,7 @@ import hashlib
 import html
 import json
 import re
+import ssl
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -125,6 +126,31 @@ _SINOPEC_CAMPUS_API = (
 )
 _CNPC_RECRUIT_URL = "https://zhaopin.cnpc.com.cn/"
 _PIPECHINA_RECRUIT_URL = "https://zhaopin.pipechina.com.cn/recruit"
+
+_OFFICIAL_REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 Chrome/124.0 Safari/537.36 OilTrainSafe/1.0"
+    )
+}
+
+
+def _is_certificate_verification_error(exc: BaseException) -> bool:
+    """判断异常链中是否包含 TLS 证书校验失败。
+
+    httpx 会把 ssl.SSLCertVerificationError 包装成 ConnectError，
+    必须沿 __cause__/__context__ 链定位真实原因，否则日志只剩
+    “ConnectError”，无法与断网、DNS 故障区分。
+    """
+
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ssl.SSLCertVerificationError):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 _OFFICIAL_SEARCH_KEYWORDS = (
     "油气储运", "长输", "管道", "站场", "场站", "集输", "输油", "输气",
@@ -756,6 +782,43 @@ class PositionDiscoveryService:
             logger.warning("岗位检索词生成失败，使用教师输入：{}", exc)
         return list(dict.fromkeys(term[:64] for term in base if term))[:6]
 
+    async def _post_official_api(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        *,
+        json_payload: dict[str, Any],
+    ) -> httpx.Response:
+        """请求内置白名单的央企官方接口。
+
+        部分央企招聘站（如 job.sinopec.com）未下发完整 TLS 证书链，
+        容器内标准 CA 证书包无法构建信任路径，httpx 直接抛
+        CERTIFICATE_VERIFY_FAILED。此处仅对固定写死的官方 API 域名
+        做一次“跳过校验”的降级重试：URL 不是用户输入，抓取结果仍须
+        通过招聘语义、岗位相关性和教师审核三道过滤，降级动作记录告警日志。
+        """
+
+        try:
+            response = await client.post(url, json=json_payload)
+            response.raise_for_status()
+            return response
+        except Exception as exc:  # noqa: BLE001
+            if not _is_certificate_verification_error(exc):
+                raise
+        logger.warning(
+            "官方接口 {} 证书链校验失败，改用跳过校验的独立连接重试（仅限内置白名单域名）",
+            url,
+        )
+        async with httpx.AsyncClient(
+            timeout=client.timeout,
+            verify=False,
+            follow_redirects=True,
+            headers=_OFFICIAL_REQUEST_HEADERS,
+        ) as fallback_client:
+            response = await fallback_client.post(url, json=json_payload)
+            response.raise_for_status()
+            return response
+
     async def _search_one(self, client: httpx.AsyncClient, query: str) -> list[SearchHit]:
         rss_response = await client.get(
             self.settings.job_search_url,
@@ -794,9 +857,10 @@ class PositionDiscoveryService:
             for keyword in keywords[:3]:
                 request_count += 1
                 try:
-                    response = await client.post(
+                    response = await self._post_official_api(
+                        client,
                         _SINOPEC_SOCIAL_API,
-                        json={
+                        json_payload={
                             "departmentIdEq": None,
                             "searchLike": keyword,
                             "endTag": end_tag,
@@ -804,7 +868,6 @@ class PositionDiscoveryService:
                             "limit": 30,
                         },
                     )
-                    response.raise_for_status()
                     payload = response.json()
                     if not payload.get("success"):
                         errors.append(
@@ -824,8 +887,10 @@ class PositionDiscoveryService:
                             continue
                         postings.setdefault(posting.url, posting)
                 except Exception as exc:  # noqa: BLE001
+                    # 记录完整异常摘要（含 TLS/DNS 等真实原因），而非只有异常类名。
                     errors.append(
-                        f"中国石化官方接口({keyword}/{end_tag})：{type(exc).__name__}"
+                        f"中国石化官方接口({keyword}/{end_tag})："
+                        f"{type(exc).__name__}: {str(exc)[:120]}"
                     )
                     # 官网出现访问限制时停止该状态的后续关键词请求，避免重复触发限制。
                     break
@@ -880,11 +945,11 @@ class PositionDiscoveryService:
     ) -> dict[str, Any]:
         url = "https://job.sinopec.com/#/school/recruitmentPositions"
         try:
-            response = await client.post(
+            response = await self._post_official_api(
+                client,
                 _SINOPEC_CAMPUS_API,
-                json={"page": 1, "limit": 1, "keyword": keyword},
+                json_payload={"page": 1, "limit": 1, "keyword": keyword},
             )
-            response.raise_for_status()
             payload = response.json()
             message = _clean_text(str(payload.get("message") or ""), 200)
             if payload.get("success"):
@@ -912,14 +977,34 @@ class PositionDiscoveryService:
                 "status": "unreachable",
                 "available": False,
                 "url": url,
-                "detail": f"校园招聘岗位接口本次连接失败（{type(exc).__name__}）",
+                "detail": (
+                    f"校园招聘岗位接口本次连接失败"
+                    f"（{type(exc).__name__}: {str(exc)[:80]}）"
+                ),
             }
 
     async def _fetch_content(self, client: httpx.AsyncClient, hit: SearchHit) -> FetchedPage | None:
         if _source_for_url(hit.url) is None:
             return None
+        official_host = (urlparse(hit.url).hostname or "") in _OFFICIAL_ENTERPRISE_DOMAINS
         try:
-            response = await client.get(hit.url)
+            try:
+                response = await client.get(hit.url)
+            except Exception as exc:  # noqa: BLE001
+                # 央企官方详情页与接口共用同一证书链，按同样的白名单降级重试。
+                if not (official_host and _is_certificate_verification_error(exc)):
+                    raise
+                logger.warning(
+                    "官方页面 {} 证书链校验失败，改用跳过校验的独立连接重试（仅限内置白名单域名）",
+                    hit.url,
+                )
+                async with httpx.AsyncClient(
+                    timeout=client.timeout,
+                    verify=False,
+                    follow_redirects=True,
+                    headers=_OFFICIAL_REQUEST_HEADERS,
+                ) as fallback_client:
+                    response = await fallback_client.get(hit.url)
             response.raise_for_status()
             if _source_for_url(str(response.url)) is None:
                 return None
@@ -1066,17 +1151,11 @@ class PositionDiscoveryService:
         queries = [*history_queries, *base_queries]
 
         timeout = httpx.Timeout(float(self.settings.job_search_timeout))
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 Chrome/124.0 Safari/537.36 OilTrainSafe/1.0"
-            )
-        }
         errors: list[str] = []
         async with httpx.AsyncClient(
             timeout=timeout,
             follow_redirects=True,
-            headers=headers,
+            headers=_OFFICIAL_REQUEST_HEADERS,
         ) as client:
             (
                 sinopec_postings,
@@ -1400,6 +1479,9 @@ class PositionDiscoveryService:
             "recruitment_semantic": recruitment_semantic_count,
             "relevant_positions": relevant_count,
         }
+        official_available = any(
+            bool(source.get("available")) for source in official_sources
+        )
         if output:
             diagnostic = (
                 f"重点央企官方候选{official_search_candidate_count}条、结构化岗位"
@@ -1411,6 +1493,16 @@ class PositionDiscoveryService:
             diagnostic = "搜索结果未包含可展开的招聘详情，招聘站点可能暂时限制访问或页面结构已变化"
         elif recruitment_semantic_count == 0:
             diagnostic = "已取得候选页面，但正文未包含招聘职责、任职要求等可验证语义"
+        elif not official_available:
+            unreachable = "、".join(
+                f"{source['source']}({source['status']})"
+                for source in official_sources
+                if not source.get("available")
+            )
+            diagnostic = (
+                f"央企官方渠道本次均无法直接访问（{unreachable}），"
+                f"已展开{len(expanded)}条公共候选页面但与岗位相关性不足，可稍后重试"
+            )
         else:
             diagnostic = "候选招聘页面与当前岗位名称、别名及油气储运技能的相关性不足"
         return DiscoveryResult(

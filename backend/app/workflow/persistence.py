@@ -49,17 +49,6 @@ class WorkflowPersistence:
         await self.session.flush()
         return inst
 
-    async def load_instance(self, workflow_id: int) -> WorkflowContext | None:
-        """从实例恢复上下文。"""
-        inst = await self.session.get(WorkflowInstance, workflow_id)
-        if inst is None:
-            return None
-        ctx = WorkflowContext.from_json(inst.context_json or "{}")
-        ctx.workflow_id = str(inst.id)
-        ctx.current_node = inst.current_node or ctx.current_node
-        ctx.state = WorkflowState(inst.state) if inst.state else ctx.state  # type: ignore[arg-type]
-        return ctx
-
     async def log_node(
         self,
         workflow_id: int,

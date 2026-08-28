@@ -18,18 +18,8 @@ class ServiceUnavailableError(WorkflowError):
     """依赖服务（如百炼）暂时不可用——可中断恢复。"""
 
 
-class WorkflowResumeError(WorkflowError):
-    """恢复工作流失败。"""
-
-
-class MaxFollowUpExceeded(WorkflowError):
-    """追问次数超上限。"""
-
-
 __all__ = [
     "WorkflowError",
     "RetryableNodeError",
     "ServiceUnavailableError",
-    "WorkflowResumeError",
-    "MaxFollowUpExceeded",
 ]

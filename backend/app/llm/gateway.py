@@ -93,6 +93,7 @@ class LLMGateway:
         temperature: float | None = None,
         max_tokens: int | None = None,
         timeout: float | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> LLMResponse:
         """对话补全，带重试。"""
         last_exc: Exception | None = None
@@ -103,6 +104,7 @@ class LLMGateway:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     timeout=timeout,
+                    extra_body=extra_body,
                 )
             except _RETRIABLE as exc:
                 last_exc = exc
@@ -165,6 +167,7 @@ class LLMGateway:
         temperature: float | None = None,
         max_tokens: int | None = None,
         timeout: float | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> StructuredOutputResult:
         """要求返回 JSON 的结构化对话，带解析失败修复。
 
@@ -172,9 +175,9 @@ class LLMGateway:
         须由规则层/混合评分层再加工（见 PHASE 8）。
         """
         working: list[LLMMessage] = list(messages)
-        if schema_description and not any(
-            "JSON" in m.content or "json" in m.content.lower() for m in working
-        ):
+        # 字段名契约始终注入：业务提示词即使提到 JSON，也未必约定字段名，
+        # 缺失契约会放任模型自选字段名（如 question_text），导致结构校验整批失败。
+        if schema_description:
             contract_system, _ = await get_prompt_messages(
                 "structured_output_contract",
                 {
@@ -197,6 +200,7 @@ class LLMGateway:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     timeout=timeout,
+                    extra_body=extra_body,
                 )
             except LLMError as exc:
                 last_error = str(exc)
@@ -266,11 +270,6 @@ async def refresh_runtime_llm_config(session) -> dict[str, str]:
         logger.info("运行时 LLM 配置已加载：{} 项", len(_runtime_llm_config))
     except Exception as exc:  # noqa: BLE001
         logger.warning("运行时 LLM 配置加载失败，回退环境变量：{}", exc)
-    return dict(_runtime_llm_config)
-
-
-def get_runtime_llm_config() -> dict[str, str]:
-    """返回当前运行时 LLM 配置的副本（只读）。"""
     return dict(_runtime_llm_config)
 
 
@@ -350,5 +349,4 @@ __all__ = [
     "get_gateway",
     "reset_gateway",
     "refresh_runtime_llm_config",
-    "get_runtime_llm_config",
 ]

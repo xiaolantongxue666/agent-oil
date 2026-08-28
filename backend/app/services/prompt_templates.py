@@ -34,8 +34,9 @@ PROMPT_DEFINITIONS: tuple[PromptDefinition, ...] = (
         "structured_output_contract",
         "模型基础设施·JSON 输出约束",
         "模型基础设施",
-        "结构化调用未显式包含 JSON 要求时，由网关追加输出格式约束。",
-        "请严格返回 JSON。{{schema_description}}",
+        "结构化调用时由网关统一追加的输出格式与字段名约束。",
+        "请严格返回 JSON。输出必须遵循以下 schema，所有字段名必须与 schema 完全一致，"
+        "不得改名、增删字段或使用其他名称：{{schema_description}}",
         "{{request_context}}",
         ("schema_description", "request_context"),
         "app/llm/gateway.py::LLMGateway.chat_structured",
@@ -187,7 +188,9 @@ PROMPT_DEFINITIONS: tuple[PromptDefinition, ...] = (
         "4. 每个选项提供有教学意义的 feedback，题目提供 explanation。\n"
         "5. ability_key 只能使用目标能力中的英文 key；knowledge_point 写中文知识点。\n"
         "6. 题目必须能由给定材料判断，不编造阈值、标准条款、页码或真实现场数据。\n"
-        "7. 只用于教学模拟，不给出可直接用于真实油气现场的控制、维修或应急操作指令。",
+        "7. 只用于教学模拟，不给出可直接用于真实油气现场的控制、维修或应急操作指令。\n"
+        "8. 每题四个选项内容必须互不相同；is_correct 必须为 JSON 布尔值 true/false，"
+        "score 为 0-100 整数；仅一个选项 is_correct=true。",
         (
             "count", "difficulty", "task_code", "task_title", "task_description", "scenario",
             "target_abilities", "knowledge_points", "required_points", "authority_evidence",
