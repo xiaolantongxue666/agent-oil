@@ -22,12 +22,41 @@ class PositionDiscoveryRun(Base, PKMixin, TimestampMixin):
         ForeignKey("positions.id", ondelete="CASCADE"), index=True
     )
     status: Mapped[str] = mapped_column(String(24), default="running", index=True)
+    mode: Mapped[str] = mapped_column(String(24), default="fast", index=True)
+    stage: Mapped[str] = mapped_column(String(48), default="queued")
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    cancel_requested: Mapped[bool] = mapped_column(default=False)
     query_terms: Mapped[list[Any]] = mapped_column(JSONBType, default=list)
     source_domains: Mapped[list[Any]] = mapped_column(JSONBType, default=list)
+    stage_stats: Mapped[dict[str, Any]] = mapped_column(JSONBType, default=dict)
+    official_sources: Mapped[list[Any]] = mapped_column(JSONBType, default=list)
+    warnings: Mapped[list[Any]] = mapped_column(JSONBType, default=list)
+    diagnostic: Mapped[str] = mapped_column(Text, default="")
     found_count: Mapped[int] = mapped_column(Integer, default=0)
     saved_count: Mapped[int] = mapped_column(Integer, default=0)
     error_summary: Mapped[str] = mapped_column(Text, default="")
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PositionDiscoveryCandidate(Base, PKMixin, TimestampMixin):
+    """浏览器 Agent 抽取的候选；通过规则校验后才复制为正式证据快照。"""
+
+    __tablename__ = "position_discovery_candidates"
+
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("position_discovery_runs.id", ondelete="CASCADE"), index=True
+    )
+    position_id: Mapped[int] = mapped_column(
+        ForeignKey("positions.id", ondelete="CASCADE"), index=True
+    )
+    source_name: Mapped[str] = mapped_column(String(128), default="")
+    source_url: Mapped[str] = mapped_column(Text)
+    source_url_hash: Mapped[str] = mapped_column(String(64), index=True)
+    extracted_json: Mapped[dict[str, Any]] = mapped_column(JSONBType, default=dict)
+    raw_content: Mapped[str] = mapped_column(Text, default="")
+    validation_status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
+    validation_errors: Mapped[list[Any]] = mapped_column(JSONBType, default=list)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
 
 
 class JobPostingSnapshot(Base, PKMixin, TimestampMixin):
@@ -98,4 +127,9 @@ class PositionAnalysisRun(Base, PKMixin, TimestampMixin):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
-__all__ = ["JobPostingSnapshot", "PositionAnalysisRun", "PositionDiscoveryRun"]
+__all__ = [
+    "JobPostingSnapshot",
+    "PositionAnalysisRun",
+    "PositionDiscoveryCandidate",
+    "PositionDiscoveryRun",
+]

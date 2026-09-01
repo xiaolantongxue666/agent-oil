@@ -31,6 +31,7 @@ from app.models.position import (
 from app.models.position_market import (
     JobPostingSnapshot,
     PositionAnalysisRun,
+    PositionDiscoveryCandidate,
     PositionDiscoveryRun,
 )
 from app.models.prompt import PromptTemplate, PromptTemplateRevision
@@ -72,6 +73,7 @@ __all__ = [
     "Position",
     "PositionAnalysisRun",
     "PositionAbilityRelation",
+    "PositionDiscoveryCandidate",
     "PositionDiscoveryRun",
     "PromptTemplate",
     "PromptTemplateRevision",

@@ -37,17 +37,17 @@ const routes: RouteRecordRaw[] = [
   { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { public: true, title: '登录 — 高水平专业群教学智能体平台' } },
   { path: '/', component: () => import('@/layouts/DefaultLayout.vue'), redirect: '/student/dashboard', children: studentChildren },
   { path: '/teacher', component: () => import('@/layouts/TeacherLayout.vue'), redirect: '/teacher/dashboard', meta: { roles: ['teacher', 'admin'] }, children: teacherChildren },
-  { path: '/admin', component: () => import('@/layouts/AdminLayout.vue'), redirect: '/admin/dashboard', meta: { roles: ['admin'] }, children: [
-    { path: 'dashboard', name: 'admin-dashboard', component: () => import('@/views/admin/AdminDashboardView.vue'), meta: { title: '系统总览' } },
-    { path: 'users', name: 'admin-users', component: () => import('@/views/admin/AdminUsersView.vue'), meta: { title: '用户组织' } },
+  { path: '/admin', component: () => import('@/layouts/AdminLayout.vue'), redirect: '/admin/users', meta: { roles: ['admin'] }, children: [
+    { path: 'users', name: 'admin-users', component: () => import('@/views/admin/AdminUsersView.vue'), meta: { title: '组织与用户' } },
     { path: 'ai-system', name: 'admin-ai-system', component: () => import('@/views/admin/AdminFeaturesView.vue'), meta: { title: '功能控制' } },
     { path: 'llm-config', name: 'admin-llm-config', component: () => import('@/views/admin/AdminLlmConfigView.vue'), meta: { title: '教学智能体模型服务' } },
     { path: 'prompts', name: 'admin-prompts', component: () => import('@/views/admin/AdminPromptManageView.vue'), meta: { title: '教学策略工坊' } },
-    { path: 'audit', name: 'admin-audit', component: () => import('@/views/admin/AdminAuditView.vue'), meta: { title: '审计运行' } },
     { path: 'assistant', name: 'admin-assistant', component: () => import('@/views/KnowledgeQAView.vue'), meta: { title: '智能助手' } },
-    // 已废弃入口：重定向到 dashboard，避免旧书签 404
-    { path: 'governance', redirect: '/admin/dashboard' },
-    { path: 'review', redirect: '/admin/dashboard' },
+    // 已废弃入口：重定向到组织与用户，避免旧书签 404
+    { path: 'governance', redirect: '/admin/users' },
+    { path: 'review', redirect: '/admin/users' },
+    { path: 'dashboard', redirect: '/admin/users' },
+    { path: 'audit', redirect: '/admin/users' },
   ] },
   { path: '/:pathMatch(.*)*', redirect: '/student/dashboard' },
 ]
@@ -58,8 +58,8 @@ router.beforeEach(async (to) => {
   if (to.meta.public) return true
   if (!auth.isAuthed) return { name: 'login', query: { redirect: to.fullPath } }
   const roles = to.matched.flatMap((record) => (record.meta.roles as string[] | undefined) || [])
-  if (roles.length && (!auth.role || !roles.includes(auth.role))) return auth.isAdmin ? { name: 'admin-dashboard' } : auth.isStaff ? { name: 'teacher-dashboard' } : { name: 'student-dashboard' }
-  if (to.meta.feature && auth.isAdmin) { const admin = useAdminStore(); try { await admin.loadFeatures() } catch { return { name: 'admin-dashboard', query: { notice: '功能配置暂不可用' } } }; if (!admin.isEnabled(String(to.meta.feature))) return { name: 'admin-dashboard', query: { notice: '该功能当前已停用' } } }
+  if (roles.length && (!auth.role || !roles.includes(auth.role))) return auth.isAdmin ? { path: '/admin/users' } : auth.isStaff ? { name: 'teacher-dashboard' } : { name: 'student-dashboard' }
+  if (to.meta.feature && auth.isAdmin) { const admin = useAdminStore(); try { await admin.loadFeatures() } catch { return { path: '/admin/users', query: { notice: '功能配置暂不可用' } } }; if (!admin.isEnabled(String(to.meta.feature))) return { path: '/admin/users', query: { notice: '该功能当前已停用' } } }
   return true
 })
 export default router

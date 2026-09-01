@@ -17,6 +17,21 @@ from app.core.config import get_settings
 from app.core.logging import logger
 from app.rag.embedding import _tokenize  # 复用分词
 
+# 治理台发布的运行时配置覆盖（键为 Settings 字段名），优先于 .env。
+_RUNTIME_OVERRIDES: dict[str, str] = {}
+_RUNTIME_KEYS = ("reranker_backend", "reranker_model", "reranker_base_url", "reranker_api_key")
+
+
+def apply_runtime_overrides(values: dict[str, str]) -> None:
+    _RUNTIME_OVERRIDES.update({k: str(v) for k, v in values.items() if k in _RUNTIME_KEYS})
+
+
+def reset_reranker() -> None:
+    """丢弃当前单例，下一次获取时按最新配置重建。"""
+
+    global _reranker
+    _reranker = None
+
 
 class RerankerService:
     """Reranker 服务：API / 本地 / Mock。"""
@@ -29,14 +44,20 @@ class RerankerService:
         self._api_base_url: str = ""
         self._init()
 
+    def _get(self, attr: str):
+        """治理台运行时配置优先，其次 .env 设置。"""
+
+        value = _RUNTIME_OVERRIDES.get(attr, "")
+        return value if value != "" else getattr(self._settings, attr)
+
     def _init(self) -> None:
         # 1) API 模式优先
-        if self._settings.reranker_backend == "api":
+        if self._get("reranker_backend") == "api":
             self._init_api()
             if self._backend == "api":
                 return
         # 2) 本地模式
-        if self._settings.reranker_backend == "local":
+        if self._get("reranker_backend") == "local":
             self._init_local()
             if self._backend == "local":
                 return
@@ -44,9 +65,9 @@ class RerankerService:
         self._backend = "mock"
 
     def _init_api(self) -> None:
-        self._api_key = self._settings.reranker_api_key or self._settings.bailian_api_key
+        self._api_key = self._get("reranker_api_key") or self._settings.bailian_api_key
         self._api_base_url = (
-            self._settings.reranker_base_url
+            self._get("reranker_base_url")
             or self._settings.bailian_base_url
         )
         if not self._api_key:
@@ -55,7 +76,7 @@ class RerankerService:
         self._backend = "api"
         logger.info(
             "Reranker API 后端就绪: model={}, base={}",
-            self._settings.reranker_model,
+            self._get("reranker_model"),
             self._api_base_url,
         )
 
@@ -63,9 +84,9 @@ class RerankerService:
         try:
             from sentence_transformers import CrossEncoder  # type: ignore
 
-            self._model = CrossEncoder(self._settings.reranker_model)
+            self._model = CrossEncoder(self._get("reranker_model"))
             self._backend = "local"
-            logger.info("Reranker 本地模型已加载: {}", self._settings.reranker_model)
+            logger.info("Reranker 本地模型已加载: {}", self._get("reranker_model"))
         except Exception as exc:  # noqa: BLE001
             logger.warning("本地 Reranker 模型不可用: {}", exc)
 

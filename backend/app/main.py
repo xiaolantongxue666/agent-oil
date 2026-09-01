@@ -34,6 +34,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await refresh_runtime_llm_config(session)
     except Exception as exc:  # noqa: BLE001
         logger.warning("运行时 LLM 配置启动加载失败，使用 .env：{}", exc)
+    # 从 DB 加载向量/重排模型运行时配置（优先级高于 .env）
+    try:
+        from app.db.session import AsyncSessionLocal
+        from app.rag.runtime import refresh_runtime_rag_config
+
+        async with AsyncSessionLocal() as session:
+            await refresh_runtime_rag_config(session)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("RAG 运行时配置启动加载失败，使用 .env：{}", exc)
+    # 采集任务重启恢复：把上次进程中断留下的 queued/running 任务明确标记为失败
+    try:
+        from app.api.routers.position_admin import fail_stale_discovery_runs
+
+        recovered = await fail_stale_discovery_runs()
+        if recovered:
+            logger.warning("启动恢复：{} 个遗留采集任务已标记为失败", recovered)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("启动采集任务恢复检查失败：{}", exc)
     yield
     logger.info("应用关闭")
 

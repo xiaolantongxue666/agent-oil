@@ -2,22 +2,33 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
+from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from app.api import ok
 from app.api.deps import AdminUser, CurrentUser, DBSession
+from app.db.session import AsyncSessionLocal
 from app.models.position import JobTask, Position
 from app.models.position_market import (
     JobPostingSnapshot,
     PositionAnalysisRun,
+    PositionDiscoveryCandidate,
     PositionDiscoveryRun,
 )
 from app.services.admin_governance import audit, enforce_feature
+from app.services.position_browser_agent import (
+    BrowserAgentCancelled,
+    PositionBrowserAgent,
+    final_run_status,
+    filter_duplicate_snapshots,
+)
 from app.services.position_discovery import (
     PositionDiscoveryService,
     PublicationDateEvidence,
@@ -30,6 +41,7 @@ from app.services.position_graph_analysis import (
 )
 
 router = APIRouter(prefix="/teacher/positions", tags=["teacher-position-admin"])
+_BROWSER_DISCOVERY_LOCK = asyncio.Lock()
 
 
 def _require_teacher(user: CurrentUser) -> int:
@@ -74,6 +86,7 @@ class DiscoverBody(BaseModel):
     max_results: int = Field(20, ge=1, le=50)
     lookback_months: int = Field(0, ge=0, le=12)
     confirm_public_search: bool = False
+    mode: Literal["fast", "browser"] = "fast"
 
 
 class RefreshDatesBody(BaseModel):
@@ -87,6 +100,204 @@ class AnalysisUpdateBody(BaseModel):
 class PublishBody(BaseModel):
     analysis_id: int | None = None
     confirm_reviewed: bool = False
+
+
+def _discovery_run_out(run: PositionDiscoveryRun, *, lookback_months: int = 0) -> dict[str, Any]:
+    return {
+        "run_id": run.id,
+        "status": run.status,
+        "mode": run.mode,
+        "stage": run.stage,
+        "progress": run.progress,
+        "cancel_requested": run.cancel_requested,
+        "query_terms": run.query_terms or [],
+        "source_domains": run.source_domains or [],
+        "found_count": run.found_count,
+        "saved_count": run.saved_count,
+        "lookback_months": lookback_months,
+        "stage_stats": run.stage_stats or {},
+        "official_sources": run.official_sources or [],
+        "diagnostic": run.diagnostic,
+        "warnings": run.warnings or [],
+        "error_summary": run.error_summary,
+        "created_at": run.created_at.isoformat() if run.created_at else "",
+        "completed_at": run.completed_at.isoformat() if run.completed_at else "",
+    }
+
+
+async def _existing_snapshot_hashes(session: DBSession, position_id: int) -> tuple[set[str], set[str]]:
+    """查询该岗位已入库快照的 URL 与内容哈希，用于跨 run 去重。"""
+
+    rows = (
+        await session.execute(
+            select(
+                JobPostingSnapshot.source_url_hash,
+                JobPostingSnapshot.content_hash,
+            ).where(JobPostingSnapshot.position_id == position_id)
+        )
+    ).all()
+    url_hashes = {str(row[0]) for row in rows if row[0]}
+    content_hashes = {str(row[1]) for row in rows if row[1]}
+    return url_hashes, content_hashes
+
+
+def _candidate_out(candidate: PositionDiscoveryCandidate) -> dict[str, Any]:
+    extracted = candidate.extracted_json or {}
+    return {
+        "id": candidate.id,
+        "source_name": candidate.source_name,
+        "source_url": candidate.source_url,
+        "title": str(extracted.get("title", "")),
+        "validation_status": candidate.validation_status,
+        "validation_errors": candidate.validation_errors or [],
+        "confidence": candidate.confidence,
+    }
+
+
+async def fail_stale_discovery_runs() -> int:
+    """服务启动时清理遗留采集任务：单进程部署下 queued/running 必然是中断残留。"""
+
+    async with AsyncSessionLocal() as session:
+        stale = (
+            await session.scalars(
+                select(PositionDiscoveryRun).where(
+                    PositionDiscoveryRun.status.in_(["queued", "running"])
+                )
+            )
+        ).all()
+        if not stale:
+            return 0
+        now = datetime.now(UTC)
+        for run in stale:
+            run.status = "failed"
+            run.stage = "failed"
+            run.error_summary = "服务重启导致采集任务中断"
+            run.diagnostic = "采集任务因服务重启中断，请重新发起采集"
+            run.completed_at = now
+        await session.commit()
+        return len(stale)
+
+
+async def _execute_browser_discovery(
+    *,
+    run_id: int,
+    position_id: int,
+    position_name: str,
+    aliases: list[str],
+    description: str,
+    max_results: int,
+    lookback_months: int,
+) -> None:
+    """在响应返回后运行浏览器任务；使用独立会话，避免请求会话已关闭。"""
+
+    async with AsyncSessionLocal() as session:
+        run = await session.get(PositionDiscoveryRun, run_id)
+        if run is None:
+            return
+        run.status = "running"
+        run.stage = "starting_browser"
+        run.progress = 2
+        await session.commit()
+
+        async def update_progress(stage: str, progress: int, stats: dict[str, int]) -> None:
+            await session.refresh(run, attribute_names=["cancel_requested"])
+            if run.cancel_requested:
+                raise BrowserAgentCancelled("教师已取消任务")
+            run.stage = stage
+            run.progress = max(0, min(progress, 100))
+            run.stage_stats = stats
+            await session.commit()
+
+        async def should_cancel() -> bool:
+            await session.refresh(run, attribute_names=["cancel_requested"])
+            return bool(run.cancel_requested)
+
+        try:
+            run.stage = "waiting_browser"
+            await session.commit()
+            async with _BROWSER_DISCOVERY_LOCK:
+                if await should_cancel():
+                    raise BrowserAgentCancelled("教师已取消任务")
+                result = await PositionBrowserAgent().discover(
+                    position_name=position_name,
+                    aliases=aliases,
+                    description=description,
+                    max_results=max_results,
+                    lookback_months=lookback_months,
+                    progress=update_progress,
+                    should_cancel=should_cancel,
+                )
+            existing_url_hashes, existing_content_hashes = await _existing_snapshot_hashes(
+                session, position_id
+            )
+            fresh_hits, duplicate_count = filter_duplicate_snapshots(
+                result.hits, existing_url_hashes, existing_content_hashes
+            )
+            for candidate in result.candidates:
+                session.add(
+                    PositionDiscoveryCandidate(
+                        run_id=run_id,
+                        position_id=position_id,
+                        source_name=candidate.source_name,
+                        source_url=candidate.source_url,
+                        source_url_hash=hashlib.sha256(candidate.source_url.encode()).hexdigest(),
+                        extracted_json=candidate.extracted,
+                        raw_content=candidate.raw_content,
+                        validation_status=candidate.status,
+                        validation_errors=candidate.errors,
+                        confidence=candidate.confidence,
+                    )
+                )
+            for item in fresh_hits:
+                session.add(
+                    JobPostingSnapshot(
+                        position_id=position_id,
+                        discovery_run_id=run_id,
+                        **item,
+                    )
+                )
+            run.query_terms = [position_name, *aliases]
+            run.source_domains = sorted(
+                {
+                    str(urlparse(item["source_url"]).hostname or "")
+                    for item in fresh_hits
+                }
+            )
+            run.found_count = len(result.candidates)
+            run.saved_count = len(fresh_hits)
+            run.stage_stats = {**result.stage_stats, "duplicate_skipped": duplicate_count}
+            run.official_sources = result.source_reports
+            run.warnings = result.warnings
+            run.diagnostic = (
+                result.diagnostic
+                if duplicate_count == 0
+                else f"{result.diagnostic} 跨任务去重跳过 {duplicate_count} 条已入库岗位。"
+            )
+            run.error_summary = "\n".join(result.warnings[:10])
+            run.status = final_run_status(len(fresh_hits), result.source_reports)
+            run.stage = "completed"
+            run.progress = 100
+            run.completed_at = datetime.now(UTC)
+            await session.commit()
+        except BrowserAgentCancelled:
+            await session.rollback()
+            run = await session.get(PositionDiscoveryRun, run_id)
+            if run is not None:
+                run.status = "cancelled"
+                run.stage = "cancelled"
+                run.diagnostic = "教师已取消 AI 浏览器深度采集"
+                run.completed_at = datetime.now(UTC)
+                await session.commit()
+        except Exception as exc:  # noqa: BLE001
+            await session.rollback()
+            run = await session.get(PositionDiscoveryRun, run_id)
+            if run is not None:
+                run.status = "failed"
+                run.stage = "failed"
+                run.error_summary = f"{type(exc).__name__}: {str(exc)[:500]}"
+                run.diagnostic = "AI 浏览器深度采集失败，请检查 LLM、Chromium 和目标站点状态"
+                run.completed_at = datetime.now(UTC)
+                await session.commit()
 
 
 @router.get("", summary="教师岗位配置列表")
@@ -220,6 +431,14 @@ async def position_detail(position_id: int, user: CurrentUser, session: DBSessio
             .order_by(PositionAnalysisRun.version.desc())
         )
     ).all()
+    discovery_runs = (
+        await session.scalars(
+            select(PositionDiscoveryRun)
+            .where(PositionDiscoveryRun.position_id == position_id)
+            .order_by(PositionDiscoveryRun.created_at.desc())
+            .limit(10)
+        )
+    ).all()
     return ok(
         {
             "position": {
@@ -253,6 +472,7 @@ async def position_detail(position_id: int, user: CurrentUser, session: DBSessio
                 }
                 for item in snapshots
             ],
+            "discovery_runs": [_discovery_run_out(item) for item in discovery_runs],
             "analyses": [_analysis_out(item) for item in analyses],
         }
     )
@@ -357,6 +577,7 @@ async def refresh_position_dates(
 async def discover_position_data(
     position_id: int,
     body: DiscoverBody,
+    background_tasks: BackgroundTasks,
     user: CurrentUser,
     session: DBSession,
 ) -> dict:
@@ -370,14 +591,34 @@ async def discover_position_data(
     position = await session.get(Position, position_id)
     if position is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="岗位不存在")
-    run = PositionDiscoveryRun(position_id=position.id, status="running")
+    aliases = [str(item) for item in (position.aliases or [])]
+    run = PositionDiscoveryRun(
+        position_id=position.id,
+        status="queued" if body.mode == "browser" else "running",
+        mode=body.mode,
+        stage="queued" if body.mode == "browser" else "searching",
+        progress=0 if body.mode == "browser" else 5,
+        query_terms=[position.name, *aliases],
+    )
     session.add(run)
     await session.commit()
     await session.refresh(run)
+    if body.mode == "browser":
+        background_tasks.add_task(
+            _execute_browser_discovery,
+            run_id=run.id,
+            position_id=position.id,
+            position_name=position.name,
+            aliases=aliases,
+            description=position.description,
+            max_results=body.max_results,
+            lookback_months=body.lookback_months,
+        )
+        return ok(_discovery_run_out(run, lookback_months=body.lookback_months))
     try:
         result = await PositionDiscoveryService().discover(
             position_name=position.name,
-            aliases=[str(item) for item in (position.aliases or [])],
+            aliases=aliases,
             description=position.description,
             max_results=body.max_results,
             lookback_months=body.lookback_months,
@@ -389,9 +630,23 @@ async def discover_position_data(
         run.error_summary = "\n".join(
             [*result.errors[:10], *([result.diagnostic] if not result.hits else [])]
         )
-        run.status = "completed" if result.hits else "empty"
+        run.stage_stats = result.stage_stats
+        run.official_sources = result.official_sources
+        run.warnings = result.errors
+        run.diagnostic = result.diagnostic
+        run.status = final_run_status(len(result.hits), result.official_sources)
+        run.stage = "completed"
+        run.progress = 100
         run.completed_at = datetime.now(UTC)
-        for item in result.hits:
+        existing_url_hashes, existing_content_hashes = await _existing_snapshot_hashes(
+            session, position.id
+        )
+        fresh_hits, duplicate_count = filter_duplicate_snapshots(
+            result.hits, existing_url_hashes, existing_content_hashes
+        )
+        run.saved_count = len(fresh_hits)
+        run.stage_stats = {**result.stage_stats, "duplicate_skipped": duplicate_count}
+        for item in fresh_hits:
             session.add(
                 JobPostingSnapshot(
                     position_id=position.id,
@@ -402,6 +657,7 @@ async def discover_position_data(
         await session.commit()
     except Exception as exc:  # noqa: BLE001
         run.status = "failed"
+        run.stage = "failed"
         run.error_summary = f"{type(exc).__name__}: {str(exc)[:500]}"
         run.completed_at = datetime.now(UTC)
         await session.commit()
@@ -409,21 +665,52 @@ async def discover_position_data(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"公开岗位数据检索失败：{type(exc).__name__}",
         ) from exc
-    return ok(
-        {
-            "run_id": run.id,
-            "status": run.status,
-            "query_terms": run.query_terms,
-            "source_domains": run.source_domains,
-            "found_count": run.found_count,
-            "saved_count": run.saved_count,
-            "lookback_months": body.lookback_months,
-            "stage_stats": result.stage_stats,
-            "official_sources": result.official_sources,
-            "diagnostic": result.diagnostic,
-            "warnings": result.errors,
-        }
-    )
+    return ok(_discovery_run_out(run, lookback_months=body.lookback_months))
+
+
+@router.get("/{position_id}/discovery-runs/{run_id}", summary="查询岗位采集任务状态")
+async def discovery_run_status(
+    position_id: int,
+    run_id: int,
+    user: CurrentUser,
+    session: DBSession,
+) -> dict:
+    _require_teacher(user)
+    await enforce_feature(session, user, "teacher_industry")
+    run = await session.get(PositionDiscoveryRun, run_id)
+    if run is None or run.position_id != position_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="采集任务不存在")
+    candidates = (
+        await session.scalars(
+            select(PositionDiscoveryCandidate)
+            .where(PositionDiscoveryCandidate.run_id == run_id)
+            .order_by(PositionDiscoveryCandidate.id)
+            .limit(100)
+        )
+    ).all()
+    payload = _discovery_run_out(run)
+    payload["candidates"] = [_candidate_out(item) for item in candidates]
+    return ok(payload)
+
+
+@router.post("/{position_id}/discovery-runs/{run_id}/cancel", summary="取消岗位采集任务")
+async def cancel_discovery_run(
+    position_id: int,
+    run_id: int,
+    user: CurrentUser,
+    session: DBSession,
+) -> dict:
+    _require_teacher(user)
+    await enforce_feature(session, user, "teacher_industry", write=True)
+    run = await session.get(PositionDiscoveryRun, run_id)
+    if run is None or run.position_id != position_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="采集任务不存在")
+    if run.status not in {"queued", "running"}:
+        return ok(_discovery_run_out(run))
+    run.cancel_requested = True
+    run.stage = "cancelling"
+    await session.commit()
+    return ok(_discovery_run_out(run))
 
 
 @router.post("/{position_id}/analyze", summary="依据招聘证据生成能力图谱草稿")

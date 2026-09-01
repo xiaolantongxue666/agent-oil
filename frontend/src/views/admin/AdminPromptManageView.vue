@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Clock, Search } from '@element-plus/icons-vue'
 import { adminApi, type PromptRevisionOut, type PromptTemplateOut } from '@/api'
@@ -8,8 +8,9 @@ const loading = ref(true)
 const saving = ref(false)
 const prompts = ref<PromptTemplateOut[]>([])
 const selectedCode = ref('')
-const category = ref('全部')
-const usageFilter = ref<'全部' | '生产使用' | '后备机制' | '待接入'>('全部')
+const activeModule = ref('')
+const editorOpen = ref(false)
+const usageFilter = ref<'全部' | '生产使用' | '预留未接入'>('全部')
 const keyword = ref('')
 const systemPrompt = ref('')
 const userPrompt = ref('')
@@ -19,93 +20,43 @@ const historyVisible = ref(false)
 const historyLoading = ref(false)
 
 type RuntimeState = 'active' | 'standby' | 'pending'
-type ManagementLevel = 'teaching' | 'core' | 'future'
+type ManagementLevel = 'core' | 'teaching' | 'domain' | 'reserved' | 'custom'
+
+// 运行状态由后端代码定义层审查落档并通过 API 下发，前端只负责呈现
+const levelLabels: Record<ManagementLevel, string> = {
+  core: '系统核心',
+  teaching: '教学应用',
+  domain: '专业群建设',
+  reserved: '预留策略',
+  custom: '自定义策略',
+}
+
+const runtimeLabels: Record<RuntimeState, string> = {
+  active: '生产使用',
+  standby: '后备机制',
+  pending: '预留未接入',
+}
 
 interface StrategyGovernance {
   runtime: RuntimeState
-  conditional?: boolean
+  conditional: boolean
   trigger: string
   runtimeNote: string
   level: ManagementLevel
   levelLabel: string
-  adminAdvice: string
 }
 
-const strategyGovernance: Record<string, StrategyGovernance> = {
-  structured_output_contract: {
-    runtime: 'standby', conditional: true, trigger: '缺少 JSON 要求的结构化模型调用',
-    runtimeNote: '网关已接入该后备分支，但当前生产调用都自行声明了 JSON 要求，因此现有请求不会触发。',
-    level: 'core', levelLabel: '系统核心', adminAdvice: '适合展示在高级策略区；它是后备约束，不应标记为当前已真实触发。',
-  },
-  structured_output_repair: {
-    runtime: 'active', conditional: true, trigger: '结构化输出解析失败后的重试',
-    runtimeNote: '模型返回内容无法解析为 JSON 时，下一次重试会自动使用。',
-    level: 'core', levelLabel: '系统核心', adminAdvice: '适合展示在高级策略区；建议仅由了解模型输出协议的管理员修改。',
-  },
-  qa_query_rewrite: {
-    runtime: 'active', trigger: '学生或教师在学习助手中发起问答',
-    runtimeNote: '知识问答工作流会先扩展检索关键词，再查询专业资料。',
-    level: 'teaching', levelLabel: '教学应用', adminAdvice: '适合管理员展示和调整，用于优化专业术语召回与连续追问理解。',
-  },
-  qa_answer: {
-    runtime: 'active', trigger: '学习助手生成最终回答',
-    runtimeNote: '结合 RAG 资料、只读业务事实和用户问题生成带来源的回答。',
-    level: 'teaching', levelLabel: '教学应用', adminAdvice: '适合重点展示，是知识问答的主要教学行为策略。',
-  },
-  qa_evidence_boundary: {
-    runtime: 'active', trigger: '知识检索改写与最终回答',
-    runtimeNote: '在模型调用前声明资料、历史对话和用户输入均不能覆盖系统规则。',
-    level: 'core', levelLabel: '安全核心', adminAdvice: '应展示但需突出高风险；不建议将其当作普通教学文案随意修改。',
-  },
-  training_strategy: {
-    runtime: 'pending', trigger: '原开放式实训工作流',
-    runtimeNote: '代码节点已保留，但当前学生端采用选择题流程，没有业务接口启动训练工作流。',
-    level: 'future', levelLabel: '待接入策略', adminAdvice: '适合保留在待接入区，不能宣称修改后会影响当前学生实训。',
-  },
-  training_scenario: {
-    runtime: 'pending', trigger: '原开放式实训情境生成节点',
-    runtimeNote: '当前实训从数据库读取教师配置的情境，缺失时使用固定教学模拟文案。',
-    level: 'future', levelLabel: '待接入策略', adminAdvice: '适合保留为未来能力，当前仅保存版本，不会改变学生页面情境。',
-  },
-  training_intermediate_evaluation: {
-    runtime: 'pending', trigger: '原开放式实训中间评价节点',
-    runtimeNote: '当前选择题由数据库规则评分，不执行开放式回答的中间 LLM 评价。',
-    level: 'future', levelLabel: '待接入策略', adminAdvice: '适合在待接入区说明，不应与当前规则评分混为一谈。',
-  },
-  training_follow_up: {
-    runtime: 'pending', trigger: '原开放式实训苏格拉底追问节点',
-    runtimeNote: '追问节点和 Prompt 已保留，但当前选择题接口不会调用训练工作流。',
-    level: 'future', levelLabel: '待接入策略', adminAdvice: '适合展示未来教学设计，但必须明确当前没有真实学生触发入口。',
-  },
-  evaluation_final: {
-    runtime: 'pending', trigger: '原开放式实训最终混合评价',
-    runtimeNote: '仅由尚未接入接口的训练工作流调用；当前选择题成绩由数据库规则计算。',
-    level: 'future', levelLabel: '待接入策略', adminAdvice: '适合保留为未来评价策略，接入前还需教学评价和公平性审查。',
-  },
-  question_generation: {
-    runtime: 'active', trigger: '教师进入实训任务题库并生成题目草稿',
-    runtimeNote: '教师题库生成接口真实调用，生成结果仍需教师审核后发布。',
-    level: 'teaching', levelLabel: '教学应用', adminAdvice: '适合重点展示，可调整题目风格、依据约束和草稿输出要求。',
-  },
-  position_search_terms: {
-    runtime: 'active', trigger: '教师执行岗位公开证据采集',
-    runtimeNote: '岗位发现服务在模型可用时生成别名和检索短语，不可用时使用规则回退。',
-    level: 'teaching', levelLabel: '专业群建设', adminAdvice: '适合展示，便于优化行业岗位名称和招聘检索覆盖面。',
-  },
-  position_graph_analysis: {
-    runtime: 'active', trigger: '教师对岗位证据执行 AI 能力图谱分析',
-    runtimeNote: '根据已采集证据生成可审核草稿，最终仍由教师审核发布。',
-    level: 'teaching', levelLabel: '专业群建设', adminAdvice: '适合重点展示，可控制证据约束、六维能力结构和草稿质量。',
-  },
-}
-
-const unknownGovernance: StrategyGovernance = {
-  runtime: 'pending', trigger: '尚未登记', runtimeNote: '该策略尚未登记实际调用状态。',
-  level: 'future', levelLabel: '待核对', adminAdvice: '请先核对生产调用链，再决定是否修改。',
-}
-
-function governanceOf(item: PromptTemplateOut | null | undefined) {
-  return item ? strategyGovernance[item.code] || unknownGovernance : unknownGovernance
+function governanceOf(item: PromptTemplateOut | null | undefined): StrategyGovernance {
+  const runtime = (item?.runtime_status || 'pending') as RuntimeState
+  const level = (item?.level || (item?.is_custom ? 'custom' : 'reserved')) as ManagementLevel
+  return {
+    runtime,
+    conditional: Boolean(item?.runtime_conditional),
+    trigger: item?.runtime_trigger || '尚未登记',
+    runtimeNote: item?.runtime_note || '该策略尚未登记运行审查结论。',
+    level,
+    levelLabel: levelLabels[level],
+  }
 }
 
 const categoryContexts: Record<string, { stage: string; audience: string; impact: string }> = {
@@ -114,33 +65,80 @@ const categoryContexts: Record<string, { stage: string; audience: string; impact
   教学评价: { stage: '学习评价与能力诊断', audience: '学生 / 教师', impact: '开放作答评价' },
   题库生成: { stage: '教师备课与资源建设', audience: '教师', impact: '题库草稿生成' },
   岗位图谱: { stage: '专业群与课程体系建设', audience: '专业负责人 / 教师', impact: '岗位能力分析' },
+  岗位采集: { stage: '官方招聘数据采集', audience: '系统管理员 / 教师', impact: 'AI 浏览器采集决策与抽取' },
   模型基础设施: { stage: '模型输出质量保障', audience: '系统管理员', impact: '结构化输出稳定性' },
 }
 
-const categories = computed(() => [
-  '全部',
-  ...Array.from(new Set(prompts.value.map((item) => item.category))),
-])
+// 模块（= 提示词分类）卡片数据：关键字与使用状态过滤作用在模块内的策略上
+const moduleSummaries = computed(() => {
+  const query = keyword.value.trim().toLowerCase()
+  const order: string[] = []
+  const byCategory = new Map<string, PromptTemplateOut[]>()
+  for (const item of prompts.value) {
+    if (!byCategory.has(item.category)) {
+      byCategory.set(item.category, [])
+      order.push(item.category)
+    }
+    byCategory.get(item.category)!.push(item)
+  }
+  const matchesUsage = (governance: StrategyGovernance) => (
+    usageFilter.value === '全部'
+    || (usageFilter.value === '生产使用' && governance.runtime === 'active')
+    || (usageFilter.value === '预留未接入' && governance.runtime === 'pending')
+  )
+  return order
+    .map((category) => {
+      const items = byCategory.get(category)!
+      const visible = items.filter((item) => {
+        const governance = governanceOf(item)
+        if (!matchesUsage(governance)) return false
+        if (!query) return true
+        return [item.name, item.code, item.description, item.source_location, governance.trigger]
+          .some((value) => value.toLowerCase().includes(query))
+      })
+      const runtimeOf = (item: PromptTemplateOut) => governanceOf(item).runtime
+      return {
+        category,
+        items,
+        visibleCount: visible.length,
+        totalCount: items.length,
+        activeCount: items.filter((item) => runtimeOf(item) === 'active').length,
+        pendingCount: items.filter((item) => runtimeOf(item) === 'pending').length,
+        customCount: items.filter((item) => item.is_custom).length,
+        context: categoryContexts[category] || null,
+      }
+    })
+    .filter((module) => module.visibleCount > 0)
+})
+
+// 每个模块的专属图标与配色（自定义分类使用中性兜底样式）
+const moduleVisuals: Record<string, { icon: string; cls: string }> = {
+  知识问答: { icon: 'ChatLineRound', cls: 'education' },
+  智能实训: { icon: 'Monitor', cls: 'practice' },
+  教学评价: { icon: 'Star', cls: 'growth' },
+  题库生成: { icon: 'EditPen', cls: 'creation' },
+  岗位图谱: { icon: 'TrendCharts', cls: 'graph' },
+  岗位采集: { icon: 'Connection', cls: 'collect' },
+  模型基础设施: { icon: 'Cpu', cls: 'infra' },
+}
+const defaultVisual = { icon: 'Collection', cls: 'generic' }
+function visualOf(category: string) {
+  return moduleVisuals[category] || defaultVisual
+}
+
+function ratioWidth(count: number, total: number) {
+  if (!total) return '0%'
+  return `${Math.max((count / total) * 100, count ? 6 : 0)}%`
+}
+
+// 当前打开模块内的策略卡片
+const modulePrompts = computed(() => (
+  prompts.value.filter((item) => item.category === activeModule.value)
+))
 
 const activeCount = computed(() => prompts.value.filter((item) => governanceOf(item).runtime === 'active').length)
-const standbyCount = computed(() => prompts.value.filter((item) => governanceOf(item).runtime === 'standby').length)
 const pendingCount = computed(() => prompts.value.filter((item) => governanceOf(item).runtime === 'pending').length)
 const coreCount = computed(() => prompts.value.filter((item) => governanceOf(item).level === 'core').length)
-
-const filtered = computed(() => {
-  const query = keyword.value.trim().toLowerCase()
-  return prompts.value.filter((item) => {
-    const categoryMatch = category.value === '全部' || item.category === category.value
-    const governance = governanceOf(item)
-    const usageMatch = usageFilter.value === '全部'
-      || (usageFilter.value === '生产使用' && governance.runtime === 'active')
-      || (usageFilter.value === '后备机制' && governance.runtime === 'standby')
-      || (usageFilter.value === '待接入' && governance.runtime === 'pending')
-    const keywordMatch = !query || [item.name, item.code, item.description, item.source_location, governance.trigger, governance.adminAdvice]
-      .some((value) => value.toLowerCase().includes(query))
-    return categoryMatch && usageMatch && keywordMatch
-  })
-})
 
 const selected = computed(() => prompts.value.find((item) => item.code === selectedCode.value) || null)
 const selectedGovernance = computed(() => governanceOf(selected.value))
@@ -169,14 +167,43 @@ function selectPrompt(item: PromptTemplateOut) {
   changeNote.value = ''
 }
 
+function openModule(category: string) {
+  activeModule.value = category
+  editorOpen.value = false
+  selectedCode.value = ''
+}
+
+function backToModules() {
+  activeModule.value = ''
+  editorOpen.value = false
+  selectedCode.value = ''
+}
+
+function openEditor(item: PromptTemplateOut) {
+  selectPrompt(item)
+  editorOpen.value = true
+}
+
+function closeEditor() {
+  editorOpen.value = false
+  selectedCode.value = ''
+}
+
 async function loadPrompts(preferredCode = '') {
   loading.value = true
   try {
     const result = await adminApi.prompts()
     prompts.value = result.items
-    const next = prompts.value.find((item) => item.code === (preferredCode || selectedCode.value))
-      || prompts.value[0]
+    const next = preferredCode
+      ? prompts.value.find((item) => item.code === preferredCode)
+      : prompts.value.find((item) => item.code === selectedCode.value)
     if (next) selectPrompt(next)
+    else {
+      selectedCode.value = ''
+      systemPrompt.value = ''
+      userPrompt.value = ''
+      changeNote.value = ''
+    }
   } catch (error: any) {
     ElMessage.error(error?.message || '教学策略加载失败')
   } finally {
@@ -191,9 +218,7 @@ async function savePrompt() {
     : ''
   const runtimeMessage = selectedGovernance.value.runtime === 'active'
     ? '保存后将在下一次匹配的模型调用中生效。'
-    : selectedGovernance.value.runtime === 'standby'
-      ? '该策略属于生产后备机制，当前调用不会触发；保存后仅在未来满足触发条件时生效。'
-      : '该策略当前没有生产业务入口，保存后只生成待接入版本，不会影响现有学生或教师流程。'
+    : '该策略为预留策略：代码链路已保留，当前业务未调用；保存只形成新版本，不会影响现有学生或教师流程。'
   const coreMessage = selectedGovernance.value.level === 'core'
     ? '\n\n这是系统核心策略，错误修改可能影响多个智能体能力。'
     : ''
@@ -219,7 +244,7 @@ async function savePrompt() {
     const index = prompts.value.findIndex((item) => item.code === updated.code)
     if (index >= 0) prompts.value[index] = updated
     selectPrompt(updated)
-    const savedState = selectedGovernance.value.runtime === 'standby' ? '作为后备版本保存' : '等待业务接入'
+    const savedState = '已保存为预留版本'
     ElMessage.success(selectedGovernance.value.runtime === 'active'
       ? `已启用 ${updated.name} v${updated.version}`
       : `已保存 ${updated.name} v${updated.version}，${savedState}`)
@@ -249,9 +274,7 @@ async function restoreDefault() {
     selectPrompt(updated)
     const restoreState = selectedGovernance.value.runtime === 'active'
       ? '已恢复默认并启用'
-      : selectedGovernance.value.runtime === 'standby'
-        ? '已恢复为默认后备版本'
-        : '已恢复默认版本，等待业务接入'
+      : '已恢复默认版本，保持预留状态'
     ElMessage.success(`${restoreState} v${updated.version}`)
   } catch (error: any) {
     ElMessage.error(error?.message || '恢复默认教学策略失败')
@@ -270,6 +293,91 @@ async function showHistory() {
     ElMessage.error(error?.message || '版本历史加载失败')
   } finally {
     historyLoading.value = false
+  }
+}
+
+const createVisible = ref(false)
+const creating = ref(false)
+const createForm = reactive({
+  code: '',
+  name: '',
+  category: '',
+  description: '',
+  variables: '',
+  system_prompt: '',
+  user_prompt_template: '',
+})
+
+function openCreate() {
+  createForm.code = ''
+  createForm.name = ''
+  createForm.category = activeModule.value || ''
+  createForm.description = ''
+  createForm.variables = ''
+  createForm.system_prompt = ''
+  createForm.user_prompt_template = ''
+  createVisible.value = true
+}
+
+const createCategoryOptions = computed(() => (
+  Array.from(new Set([...Object.keys(categoryContexts), ...prompts.value.map((item) => item.category)]))
+))
+
+async function submitCreate() {
+  if (!createForm.code.trim() || !createForm.name.trim() || !createForm.category.trim()) {
+    ElMessage.warning('编号、名称和所属模块为必填项')
+    return
+  }
+  if (!createForm.system_prompt.trim() || !createForm.user_prompt_template.trim()) {
+    ElMessage.warning('系统提示词与任务模板均不能为空')
+    return
+  }
+  creating.value = true
+  try {
+    const created = await adminApi.createPrompt({
+      code: createForm.code.trim(),
+      name: createForm.name.trim(),
+      category: createForm.category.trim(),
+      description: createForm.description.trim(),
+      system_prompt: createForm.system_prompt,
+      user_prompt_template: createForm.user_prompt_template,
+      variables: createForm.variables.split(/[,，\s]+/).map((item) => item.trim()).filter(Boolean),
+    })
+    createVisible.value = false
+    await loadPrompts(created.code)
+    activeModule.value = created.category
+    selectPrompt(created)
+    editorOpen.value = true
+    ElMessage.success(`已创建自定义策略 ${created.name}；接入业务代码前保存的版本不会自动生效`)
+  } catch (error: any) {
+    ElMessage.error(error?.message || '自定义策略创建失败')
+  } finally {
+    creating.value = false
+  }
+}
+
+async function deletePrompt() {
+  if (!selected.value?.deletable) return
+  try {
+    await ElMessageBox.confirm(
+      `将删除自定义策略「${selected.value.name}」及其全部版本历史，不可恢复。是否继续？`,
+      '删除自定义教学策略',
+      { type: 'warning', confirmButtonText: '确认删除' },
+    )
+  } catch {
+    return
+  }
+  saving.value = true
+  try {
+    await adminApi.deletePrompt(selected.value.code)
+    ElMessage.success('自定义策略已删除')
+    editorOpen.value = false
+    selectedCode.value = ''
+    await loadPrompts()
+  } catch (error: any) {
+    ElMessage.error(error?.message || '删除失败')
+  } finally {
+    saving.value = false
   }
 }
 
@@ -305,7 +413,7 @@ onMounted(loadPrompts)
 
     <div class="governance-notice">
       <el-icon><Guide /></el-icon>
-      <span>目录同时包含生产使用和待接入策略。只有标记为“生产使用”的策略会影响当前业务；规则评分、安全守卫与教师审核仍由代码层强制执行。</span>
+      <span>运行状态由后端代码审查落档：生产使用 = 当前业务真实触发；预留未接入 = 代码链路保留但当前无调用入口。规则评分、安全守卫与教师审核始终由代码层强制执行。</span>
       <el-tag type="danger" effect="plain" size="small">{{ coreCount }} 项系统核心</el-tag>
     </div>
 
@@ -318,63 +426,97 @@ onMounted(loadPrompts)
         <span class="overview-icon running"><el-icon><VideoPlay /></el-icon></span>
         <div><small>生产使用</small><strong>{{ activeCount }}</strong><p>当前业务可真实触发</p></div>
       </button>
-      <button type="button" :class="{ active: usageFilter === '待接入' }" :aria-pressed="usageFilter === '待接入'" @click="usageFilter = '待接入'">
+      <button type="button" :class="{ active: usageFilter === '预留未接入' }" :aria-pressed="usageFilter === '预留未接入'" @click="usageFilter = '预留未接入'">
         <span class="overview-icon pending"><el-icon><Clock /></el-icon></span>
-        <div><small>待接入</small><strong>{{ pendingCount }}</strong><p>保存版本但暂不生效</p></div>
-      </button>
-      <button type="button" :class="{ active: usageFilter === '后备机制' }" :aria-pressed="usageFilter === '后备机制'" @click="usageFilter = '后备机制'">
-        <span class="overview-icon core"><el-icon><Lock /></el-icon></span>
-        <div><small>后备机制</small><strong>{{ standbyCount }}</strong><p>已接入代码但当前不触发</p></div>
+        <div><small>预留未接入</small><strong>{{ pendingCount }}</strong><p>代码保留但当前业务未调用</p></div>
       </button>
     </section>
 
-    <div class="workspace">
-      <aside class="strategy-library ots-card">
-        <div class="library-title">
-          <div><span>教学策略目录</span><strong>{{ prompts.length }} 项策略</strong></div>
-          <el-icon><Collection /></el-icon>
-        </div>
-        <el-input v-model="keyword" clearable :prefix-icon="Search" placeholder="搜索名称、编号或调用位置" />
-        <div class="library-filters">
-          <el-select v-model="category" class="category-select">
-            <el-option v-for="item in categories" :key="item" :label="item === '全部' ? '全部教学环节' : item" :value="item" />
-          </el-select>
-          <el-select v-model="usageFilter" class="usage-select">
-            <el-option label="全部使用状态" value="全部" />
-            <el-option label="生产使用" value="生产使用" />
-            <el-option label="后备机制" value="后备机制" />
-            <el-option label="待接入" value="待接入" />
-          </el-select>
-        </div>
-        <div class="list-count">当前显示 {{ filtered.length }} 项</div>
-
-        <div class="strategy-list">
-          <button
-            v-for="item in filtered"
-            :key="item.code"
-            type="button"
-            class="strategy-item"
-            :class="{ active: item.code === selectedCode }"
-            @click="selectPrompt(item)"
-          >
-            <div class="item-topline">
-              <span>{{ item.category }}</span>
-              <em class="runtime-dot" :class="governanceOf(item).runtime">
-                {{ governanceOf(item).runtime === 'active' ? (governanceOf(item).conditional ? '生产使用·条件触发' : '生产使用') : governanceOf(item).runtime === 'standby' ? '后备机制' : '待接入' }}
-              </em>
+    <!-- 一级：教学模块卡片（点击进入，不直接展示策略内容） -->
+    <template v-if="!activeModule">
+      <div class="module-toolbar">
+        <el-input v-model="keyword" clearable :prefix-icon="Search" class="module-search" placeholder="搜索策略名称、编号或调用位置" />
+        <el-button type="primary" plain @click="openCreate">新增自定义策略</el-button>
+      </div>
+      <div class="module-grid">
+        <button
+          v-for="module in moduleSummaries"
+          :key="module.category"
+          type="button"
+          class="module-card"
+          :class="visualOf(module.category).cls"
+          @click="openModule(module.category)"
+        >
+          <header class="module-head">
+            <span class="module-icon"><el-icon><component :is="visualOf(module.category).icon" /></el-icon></span>
+            <div class="module-titles">
+              <strong>{{ module.category }}</strong>
+              <small v-if="module.context">{{ module.context.stage }}</small>
             </div>
-            <strong>{{ item.name }}</strong>
-            <p>{{ item.description }}</p>
-            <div class="item-footer">
-              <code>{{ item.code }}</code>
-              <span :class="item.is_default ? 'default' : 'custom'">v{{ item.version }} · {{ item.is_default ? '系统默认' : '自定义' }}</span>
-            </div>
-          </button>
-          <el-empty v-if="!filtered.length" description="没有匹配的教学策略" :image-size="70" />
-        </div>
-      </aside>
+            <em class="module-count">{{ module.totalCount }}<small>项策略</small></em>
+          </header>
+          <p class="module-desc">{{ module.context ? `${module.context.audience} · ${module.context.impact}` : '自定义模块，策略说明待补充' }}</p>
+          <div class="ratio-bar" :class="visualOf(module.category).cls">
+            <span class="seg active" :style="{ width: ratioWidth(module.activeCount, module.totalCount) }" />
+            <span class="seg pending" :style="{ width: ratioWidth(module.pendingCount, module.totalCount) }" />
+          </div>
+          <footer class="module-stats">
+            <span class="stat active">{{ module.activeCount }} 生产使用</span>
+            <span v-if="module.pendingCount" class="stat pending">{{ module.pendingCount }} 预留</span>
+            <span v-if="module.customCount" class="stat custom">{{ module.customCount }} 自定义</span>
+          </footer>
+          <span class="module-enter">进入模块<el-icon><ArrowRight /></el-icon></span>
+        </button>
+        <el-empty v-if="!moduleSummaries.length" description="没有匹配的教学模块" :image-size="80" />
+      </div>
+    </template>
 
-      <main v-if="selected" class="strategy-editor ots-card">
+    <!-- 二级：模块内策略列表 → 点击进入编辑器 -->
+    <template v-else>
+      <section class="module-hero" :class="visualOf(activeModule).cls">
+        <div class="hero-left">
+          <el-button text class="back-btn" @click="backToModules"><el-icon><ArrowLeft /></el-icon>模块列表</el-button>
+          <span class="module-icon"><el-icon><component :is="visualOf(activeModule).icon" /></el-icon></span>
+          <div class="hero-titles">
+            <strong>{{ activeModule }}</strong>
+            <p v-if="categoryContexts[activeModule]">
+              {{ categoryContexts[activeModule].stage }} · 适用 {{ categoryContexts[activeModule].audience }} · 影响 {{ categoryContexts[activeModule].impact }}
+            </p>
+          </div>
+        </div>
+        <div class="hero-meta">
+          <div class="hero-chip"><span>策略总数</span><strong>{{ modulePrompts.length }}</strong></div>
+          <div class="hero-chip"><span>生产使用</span><strong>{{ moduleSummaries.find(m => m.category === activeModule)?.activeCount || 0 }}</strong></div>
+          <div class="hero-chip"><span>自定义</span><strong>{{ modulePrompts.filter(i => i.is_custom).length }}</strong></div>
+          <el-button type="primary" @click="openCreate"><el-icon><Plus /></el-icon>新增策略</el-button>
+        </div>
+      </section>
+
+      <div v-if="!editorOpen" class="prompt-grid">
+        <button
+          v-for="item in modulePrompts"
+          :key="item.code"
+          type="button"
+          class="prompt-card"
+          @click="openEditor(item)"
+        >
+          <div class="item-topline">
+            <code>{{ item.code }}</code>
+            <em class="runtime-dot" :class="governanceOf(item).runtime">
+              {{ governanceOf(item).runtime === 'active' ? (governanceOf(item).conditional ? '生产使用·条件触发' : '生产使用') : '预留未接入' }}
+            </em>
+          </div>
+          <strong>{{ item.name }}</strong>
+          <p>{{ item.description || '暂无描述' }}</p>
+          <div class="item-footer">
+            <span :class="item.is_default ? 'default' : 'custom'">v{{ item.version }} · {{ item.is_default ? '系统默认' : item.is_custom ? '自定义' : '自定义启用中' }}</span>
+            <em>查看与编辑<el-icon><ArrowRight /></el-icon></em>
+          </div>
+        </button>
+        <el-empty v-if="!modulePrompts.length" description="该模块暂无策略" :image-size="70" />
+      </div>
+
+      <main v-if="selected && editorOpen" class="strategy-editor ots-card">
         <div class="editor-header">
           <div class="editor-identity">
             <div class="category-mark"><el-icon><Reading /></el-icon></div>
@@ -383,8 +525,8 @@ onMounted(loadPrompts)
                 <h3>{{ selected.name }}</h3>
                 <el-tag effect="plain">v{{ selected.version }}</el-tag>
                 <el-tag :type="selected.is_default ? 'info' : 'warning'">{{ selected.is_default ? '系统默认' : '自定义启用中' }}</el-tag>
-                <el-tag :type="selectedGovernance.runtime === 'active' ? 'success' : selectedGovernance.runtime === 'standby' ? 'warning' : 'info'" effect="dark">
-                  {{ selectedGovernance.runtime === 'active' ? (selectedGovernance.conditional ? '生产使用 · 条件触发' : '生产使用') : selectedGovernance.runtime === 'standby' ? '后备机制 · 当前不触发' : '待接入' }}
+                <el-tag :type="selectedGovernance.runtime === 'active' ? 'success' : 'info'" effect="dark">
+                  {{ selectedGovernance.runtime === 'active' ? (selectedGovernance.conditional ? '生产使用 · 条件触发' : '生产使用') : '预留未接入' }}
                 </el-tag>
               </div>
               <p>{{ selected.description }}</p>
@@ -392,17 +534,19 @@ onMounted(loadPrompts)
             </div>
           </div>
           <div class="header-actions">
+            <el-button @click="closeEditor"><el-icon><ArrowLeft /></el-icon>返回策略列表</el-button>
             <el-button :icon="Clock" @click="showHistory">版本历史</el-button>
-            <el-button :disabled="selected.is_default" @click="restoreDefault">恢复默认</el-button>
+            <el-button :disabled="selected.is_default || selected.is_custom" @click="restoreDefault">恢复默认</el-button>
+            <el-button v-if="selected.deletable" type="danger" plain @click="deletePrompt">删除</el-button>
           </div>
         </div>
 
         <section class="runtime-panel" :class="selectedGovernance.runtime">
-          <span class="runtime-icon"><el-icon><VideoPlay v-if="selectedGovernance.runtime === 'active'" /><Lock v-else-if="selectedGovernance.runtime === 'standby'" /><Clock v-else /></el-icon></span>
+          <span class="runtime-icon"><el-icon><VideoPlay v-if="selectedGovernance.runtime === 'active'" /><Clock v-else /></el-icon></span>
           <div class="runtime-copy">
             <div>
-              <strong>{{ selectedGovernance.runtime === 'active' ? '已接入当前生产链路' : selectedGovernance.runtime === 'standby' ? '生产后备分支，当前没有真实触发' : '尚未接入当前业务流程' }}</strong>
-              <el-tag size="small" effect="plain" :type="selectedGovernance.level === 'core' ? 'danger' : selectedGovernance.level === 'future' ? 'info' : 'success'">
+              <strong>{{ selectedGovernance.runtime === 'active' ? '已接入当前生产链路' : '预留策略：代码链路保留，当前业务未调用' }}</strong>
+              <el-tag size="small" effect="plain" :type="selectedGovernance.level === 'core' ? 'danger' : selectedGovernance.level === 'reserved' ? 'info' : 'success'">
                 {{ selectedGovernance.levelLabel }}
               </el-tag>
             </div>
@@ -410,7 +554,7 @@ onMounted(loadPrompts)
           </div>
           <dl>
             <div><dt>真实触发位置</dt><dd>{{ selectedGovernance.trigger }}</dd></div>
-            <div><dt>管理员展示建议</dt><dd>{{ selectedGovernance.adminAdvice }}</dd></div>
+            <div><dt>审查等级</dt><dd>{{ selectedGovernance.levelLabel }}</dd></div>
           </dl>
         </section>
 
@@ -463,7 +607,7 @@ onMounted(loadPrompts)
             <el-input v-model="changeNote" maxlength="500" show-word-limit placeholder="例如：增强岗位能力依据约束，优化学生追问方式" />
           </div>
           <div class="publish-checks">
-            <div class="release-heading"><el-icon><Checked /></el-icon><div><strong>保存前检查</strong><span>{{ selectedGovernance.runtime === 'active' ? '保存后影响下一次匹配调用' : selectedGovernance.runtime === 'standby' ? '保存为满足条件时使用的后备版本' : '保存版本但暂不影响当前业务' }}</span></div></div>
+            <div class="release-heading"><el-icon><Checked /></el-icon><div><strong>保存前检查</strong><span>{{ selectedGovernance.runtime === 'active' ? '保存后影响下一次匹配调用' : '保存新版本，暂不影响当前业务' }}</span></div></div>
             <div v-for="item in publishChecks" :key="item.label" class="check-item" :class="{ pass: item.pass }">
               <el-icon><CircleCheckFilled v-if="item.pass" /><WarningFilled v-else /></el-icon><span>{{ item.label }}</span>
             </div>
@@ -471,16 +615,56 @@ onMounted(loadPrompts)
         </section>
 
         <footer class="editor-footer">
-          <span :class="dirty ? 'changed' : 'saved'"><i />{{ dirty ? '有尚未保存的教学策略修改' : selectedGovernance.runtime === 'active' ? '当前版本已在生产链路使用' : selectedGovernance.runtime === 'standby' ? '当前版本已保存为生产后备策略' : '当前版本已保存，等待业务接入' }}</span>
+          <span :class="dirty ? 'changed' : 'saved'"><i />{{ dirty ? '有尚未保存的教学策略修改' : selectedGovernance.runtime === 'active' ? '当前版本已在生产链路使用' : '当前版本已保存，保持预留状态' }}</span>
           <div>
             <el-button :disabled="!dirty" @click="resetEditor">撤销修改</el-button>
             <el-button type="primary" :loading="saving" :disabled="!dirty" @click="savePrompt">
-              {{ selectedGovernance.runtime === 'active' ? '保存并启用' : selectedGovernance.runtime === 'standby' ? '保存后备版本' : '保存待接入版本' }}
+              {{ selectedGovernance.runtime === 'active' ? '保存并启用' : '保存预留版本' }}
             </el-button>
           </div>
         </footer>
       </main>
-    </div>
+    </template>
+
+    <el-dialog v-model="createVisible" title="新增自定义教学策略" width="min(720px, 94vw)" top="6vh">
+      <div class="create-intro">
+        <el-icon><Guide /></el-icon>
+        <span>自定义策略用于沉淀教学策略素材；创建后可在工坊中继续编辑和版本管理，接入业务代码前不会影响任何运行流程。</span>
+      </div>
+      <el-form label-position="top">
+        <div class="create-grid">
+          <el-form-item label="策略编号（小写字母/数字/下划线）" required>
+            <el-input v-model="createForm.code" placeholder="例如 my_qa_style" maxlength="64" />
+          </el-form-item>
+          <el-form-item label="策略名称" required>
+            <el-input v-model="createForm.name" placeholder="例如 专业问答语气优化" maxlength="128" />
+          </el-form-item>
+        </div>
+        <div class="create-grid">
+          <el-form-item label="所属模块" required>
+            <el-select v-model="createForm.category" filterable allow-create default-first-option placeholder="选择或输入模块名称">
+              <el-option v-for="item in createCategoryOptions" :key="item" :label="item" :value="item" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="运行时变量（逗号分隔，模板中以 {{ '{{变量名}}' }} 使用）">
+            <el-input v-model="createForm.variables" placeholder="例如 position_name, evidence" />
+          </el-form-item>
+        </div>
+        <el-form-item label="策略说明">
+          <el-input v-model="createForm.description" maxlength="500" placeholder="说明该策略的用途与边界" />
+        </el-form-item>
+        <el-form-item label="系统提示词（System Prompt）" required>
+          <el-input v-model="createForm.system_prompt" type="textarea" :rows="6" spellcheck="false" />
+        </el-form-item>
+        <el-form-item label="用户提示词模板（User Prompt）" required>
+          <el-input v-model="createForm.user_prompt_template" type="textarea" :rows="8" spellcheck="false" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createVisible = false">取消</el-button>
+        <el-button type="primary" :loading="creating" @click="submitCreate">创建策略</el-button>
+      </template>
+    </el-dialog>
 
     <el-drawer v-model="historyVisible" title="教学策略版本历史" size="min(720px, 94vw)">
       <div v-loading="historyLoading" class="history-drawer">
@@ -532,17 +716,69 @@ onMounted(loadPrompts)
 .strategy-overview small { color: var(--ots-text-secondary); font-size: 10px; }
 .strategy-overview strong { margin-top: 2px; color: var(--ots-primary-dark); font-size: 21px; line-height: 1; }
 .strategy-overview p { margin: 4px 0 0; overflow: hidden; color: var(--ots-text-secondary); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.workspace { display: grid; grid-template-columns: minmax(270px, 320px) minmax(0, 1fr); gap: 16px; align-items: start; }
-.strategy-library { position: sticky; top: 16px; max-height: calc(100vh - 115px); padding: 15px; overflow-y: auto; }
-.library-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-.library-title span,.library-title strong { display: block; }
-.library-title span { color: var(--ots-text-secondary); font-size: 11px; }
-.library-title strong { margin-top: 3px; font-size: 16px; }
-.library-title .el-icon { color: var(--ots-primary); font-size: 21px; }
-.library-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 9px; }
-.category-select,.usage-select { width: 100%; }
-.list-count { margin: 12px 2px 8px; color: var(--ots-text-secondary); font-size: 11px; }
-.strategy-list { display: flex; flex-direction: column; gap: 8px; }
+.module-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 18px; }
+.module-search { max-width: 400px; }
+.module-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.module-card { position: relative; display: flex; flex-direction: column; gap: 10px; overflow: hidden; padding: 20px 20px 16px; border: 1px solid var(--ots-border); border-radius: 14px; background: linear-gradient(160deg, #fff 55%, var(--module-tint, #f7fbfa)); color: inherit; text-align: left; cursor: pointer; transition: transform .22s, box-shadow .22s, border-color .22s; }
+.module-card::before { content: ''; position: absolute; inset: 0 0 auto; height: 3px; background: var(--module-accent, var(--ots-primary)); opacity: .85; }
+.module-card:hover { transform: translateY(-3px); border-color: var(--module-accent, var(--ots-primary-light)); box-shadow: 0 14px 30px -18px var(--module-accent, rgba(15,94,104,.55)); }
+.module-card:hover .module-icon { transform: scale(1.06) rotate(-3deg); }
+.module-head { display: flex; align-items: center; gap: 12px; }
+.module-icon { display: grid; place-items: center; width: 44px; height: 44px; flex: 0 0 auto; border-radius: 12px; background: var(--module-icon-bg, var(--ots-education-soft)); color: var(--module-accent, var(--ots-education)); font-size: 21px; transition: transform .22s; }
+.module-titles { min-width: 0; flex: 1; }
+.module-titles strong { display: block; color: var(--ots-primary-dark); font-size: 16px; letter-spacing: .3px; }
+.module-titles small { display: block; margin-top: 3px; color: var(--ots-text-secondary); font-size: 10px; }
+.module-count { flex: 0 0 auto; display: flex; align-items: baseline; gap: 3px; color: var(--module-accent, var(--ots-primary)); font-size: 24px; font-style: normal; font-weight: 700; line-height: 1; }
+.module-count small { color: var(--ots-text-secondary); font-size: 10px; font-weight: 400; }
+.module-desc { margin: 0; color: var(--ots-text-secondary); font-size: 11px; line-height: 1.6; }
+.ratio-bar { display: flex; height: 6px; overflow: hidden; border-radius: 999px; background: var(--ots-bg-subtle); }
+.ratio-bar .seg { height: 100%; transition: width .3s; }
+.ratio-bar .seg.active { background: var(--module-accent, var(--ots-growth)); }
+.ratio-bar .seg.standby { background: #9db8cf; }
+.ratio-bar .seg.pending { background: #e3c88f; }
+.module-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.module-stats .stat { padding: 3px 10px; border-radius: 999px; font-size: 10px; background: #f2f7f6; color: #5a7471; }
+.module-stats .stat.active { background: color-mix(in srgb, var(--module-accent, #3a8d68) 12%, #fff); color: var(--module-accent, var(--ots-growth)); font-weight: 600; }
+.module-stats .stat.standby { background: #eef4f9; color: #48708f; }
+.module-stats .stat.pending { background: #faf3e4; color: #9a7a2f; }
+.module-stats .stat.custom { background: var(--ots-practice-soft); color: var(--ots-practice); }
+.module-enter { display: inline-flex; align-items: center; gap: 5px; align-self: flex-end; color: var(--module-accent, var(--ots-primary)); font-size: 11px; font-weight: 600; }
+.module-enter .el-icon { transition: transform .22s; }
+.module-card:hover .module-enter .el-icon { transform: translateX(3px); }
+/* 七套模块配色 */
+.module-card.education { --module-accent: #3576c0; --module-icon-bg: #e8f1fb; --module-tint: #f7fafd; }
+.module-card.practice { --module-accent: #c07b35; --module-icon-bg: #fbf1e6; --module-tint: #fdf9f4; }
+.module-card.growth { --module-accent: #3a8d68; --module-icon-bg: #e7f5ee; --module-tint: #f5fbf8; }
+.module-card.creation { --module-accent: #8355c8; --module-icon-bg: #f1ebfb; --module-tint: #faf8fd; }
+.module-card.graph { --module-accent: #158f8f; --module-icon-bg: #e4f4f4; --module-tint: #f4fbfb; }
+.module-card.collect { --module-accent: #2f8ea3; --module-icon-bg: #e5f3f6; --module-tint: #f4fafc; }
+.module-card.infra { --module-accent: #5f6f86; --module-icon-bg: #eceff4; --module-tint: #f8f9fb; }
+.module-card.generic { --module-accent: #6a8f7d; --module-icon-bg: #ecf3ef; --module-tint: #f7fbf9; }
+/* 二级：模块详情面板头 */
+.module-hero { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; padding: 16px 20px; border: 1px solid var(--ots-border); border-radius: 14px; background: linear-gradient(120deg, var(--module-tint, #f7fbfa), #fff 60%); }
+.module-hero .back-btn { margin-right: 2px; }
+.module-hero .module-icon { width: 46px; height: 46px; font-size: 23px; }
+.hero-left { display: flex; align-items: center; gap: 13px; min-width: 0; }
+.hero-titles strong { display: block; color: var(--ots-primary-dark); font-size: 19px; }
+.hero-titles p { margin: 4px 0 0; color: var(--ots-text-secondary); font-size: 11px; }
+.hero-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hero-chip { min-width: 74px; padding: 7px 13px; border: 1px solid var(--ots-border); border-radius: 10px; background: #fff; text-align: center; }
+.hero-chip span { display: block; color: var(--ots-text-secondary); font-size: 9px; }
+.hero-chip strong { display: block; margin-top: 2px; color: var(--ots-primary-dark); font-size: 16px; }
+/* 策略卡片 */
+.prompt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 14px; }
+.prompt-card { position: relative; display: flex; flex-direction: column; gap: 8px; overflow: hidden; padding: 16px 17px; border: 1px solid var(--ots-border); border-radius: 12px; background: #fff; color: inherit; text-align: left; cursor: pointer; transition: transform .2s, box-shadow .2s, border-color .2s; }
+.prompt-card::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--ots-border-strong); opacity: 0; transition: opacity .2s; }
+.prompt-card:hover { transform: translateY(-2px); border-color: var(--ots-primary-light); box-shadow: 0 12px 26px -18px rgba(15,94,104,.5); }
+.prompt-card:hover::before { opacity: 1; background: var(--ots-primary); }
+.prompt-card > strong { font-size: 13.5px; }
+.prompt-card p { display: -webkit-box; margin: 0; overflow: hidden; color: var(--ots-text-secondary); font-size: 10.5px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.prompt-card .item-footer em { display: inline-flex; align-items: center; gap: 3px; color: var(--ots-primary); font-size: 10px; font-style: normal; font-weight: 600; }
+.prompt-card:hover .item-footer em .el-icon { transform: translateX(2px); }
+.create-intro { display: flex; gap: 8px; margin-bottom: 14px; padding: 10px 12px; border-radius: 8px; background: var(--ots-education-soft); color: #486480; font-size: 11px; line-height: 1.55; }
+.create-intro .el-icon { margin-top: 2px; flex: 0 0 auto; }
+.create-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+@media (max-width: 768px) { .create-grid { grid-template-columns: 1fr; } }
 .strategy-item { width: 100%; padding: 11px 12px; border: 1px solid var(--ots-border); border-radius: 9px; background: #fff; color: inherit; text-align: left; cursor: pointer; transition: border-color .2s, background .2s; }
 .strategy-item:hover { border-color: var(--ots-primary-light); background: #f8fbfa; }
 .strategy-item.active { border-color: var(--ots-primary); background: #eef7f6; box-shadow: inset 3px 0 var(--ots-primary); }
@@ -630,9 +866,7 @@ pre { max-height: 320px; padding: 12px; overflow: auto; border-radius: 7px; back
 
 @media (max-width: 1100px) {
   .strategy-overview { grid-template-columns: 1fr 1fr; }
-  .workspace { grid-template-columns: 1fr; }
-  .strategy-library { position: static; max-height: 420px; }
-  .strategy-list { display: grid; grid-template-columns: 1fr 1fr; }
+  .prompt-grid, .module-grid { grid-template-columns: 1fr 1fr; }
   .release-section { grid-template-columns: 1fr; }
 }
 @media (max-width: 768px) {
@@ -640,7 +874,7 @@ pre { max-height: 320px; padding: 12px; overflow: auto; border-radius: 7px; back
   .page-hero h2 { font-size: 21px; }
   .hero-status { white-space: normal; }
   .governance-notice .el-tag { display: none; }
-  .strategy-list,.teaching-context { grid-template-columns: 1fr; }
+  .prompt-grid,.module-grid,.teaching-context { grid-template-columns: 1fr; }
   .editor-header,.prompt-fields { padding-right: 16px; padding-left: 16px; }
   .header-actions { width: 100%; flex-wrap: wrap; }
   .teaching-context { margin: 0 16px; }
@@ -654,7 +888,7 @@ pre { max-height: 320px; padding: 12px; overflow: auto; border-radius: 7px; back
 }
 @media (max-width: 520px) {
   .strategy-overview { grid-template-columns: 1fr; }
-  .library-filters,.runtime-panel dl { grid-template-columns: 1fr; }
+  .runtime-panel dl { grid-template-columns: 1fr; }
   .strategy-overview p { white-space: normal; }
 }
 </style>

@@ -12,10 +12,10 @@ const admin = useAdminStore()
 
 const menuGroups = [
   {
-    label: '运行与组织',
+    label: '平台管理',
     items: [
-      { index: '/admin/dashboard', label: '运行总览', icon: 'DataAnalysis' },
       { index: '/admin/users', label: '组织与用户', icon: 'User' },
+      { index: '/admin/ai-system', label: '功能与权限', icon: 'SetUp' },
     ],
   },
   {
@@ -23,13 +23,11 @@ const menuGroups = [
     items: [
       { index: '/admin/llm-config', label: '模型服务', icon: 'Connection' },
       { index: '/admin/prompts', label: '教学策略工坊', icon: 'EditPen' },
-      { index: '/admin/ai-system', label: '功能与权限', icon: 'SetUp' },
     ],
   },
   {
-    label: '可信治理',
+    label: '工具',
     items: [
-      { index: '/admin/audit', label: '运行审计', icon: 'DocumentChecked' },
       { index: '/admin/assistant', label: '智能助手', icon: 'ChatLineRound' },
     ],
   },

@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { teacherApi } from '@/api'
-import type { TeacherStudentOut, TeacherTaskOut } from '@/types'
+import { ABILITY_LABELS, type TeacherStudentOut, type TeacherTaskOut } from '@/types'
 
 const router = useRouter()
 const students = ref<TeacherStudentOut[]>([])
@@ -78,7 +78,7 @@ onMounted(async () => {
         <div v-if="weakDistribution.length" class="weak-list">
           <div v-for="([key, count], index) in weakDistribution" :key="key" class="weak-row">
             <span class="rank">{{ index + 1 }}</span>
-            <div><strong>{{ key }}</strong><small>{{ count }} 名学生的当前最弱维度</small></div>
+            <div><strong>{{ ABILITY_LABELS[key as keyof typeof ABILITY_LABELS] || key }}</strong><small>{{ count }} 名学生的当前最弱维度</small></div>
             <el-progress :percentage="totalStudents ? Math.round((count / totalStudents) * 100) : 0" :stroke-width="8" :show-text="false" />
             <em>{{ totalStudents ? Math.round((count / totalStudents) * 100) : 0 }}%</em>
           </div>
@@ -108,7 +108,7 @@ onMounted(async () => {
         <el-table-column prop="student_no" label="学号" min-width="120" />
         <el-table-column prop="completed_count" label="已完成实训" width="110" />
         <el-table-column label="综合能力" width="120"><template #default="{ row }"><span class="score-value">{{ row.total_score.toFixed(0) }}</span></template></el-table-column>
-        <el-table-column label="当前关注能力" min-width="150"><template #default="{ row }"><el-tag v-if="row.weakest_ability" type="warning" size="small" effect="plain">{{ row.weakest_ability }}</el-tag><span v-else class="stable-state">表现稳定</span></template></el-table-column>
+        <el-table-column label="当前关注能力" min-width="150"><template #default="{ row }"><el-tag v-if="row.weakest_ability" type="warning" size="small" effect="plain">{{ ABILITY_LABELS[row.weakest_ability as keyof typeof ABILITY_LABELS] || row.weakest_ability }}</el-tag><span v-else class="stable-state">表现稳定</span></template></el-table-column>
         <el-table-column label="教师行动" width="110"><template #default="{ row }"><el-button text type="primary" size="small" @click="router.push(`/teacher/students/${row.id}`)">查看画像</el-button></template></el-table-column>
       </el-table>
     </section>

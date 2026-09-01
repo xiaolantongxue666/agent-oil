@@ -34,15 +34,15 @@ import type {
   TrainingSessionOut,
   TrainingTaskOut,
   PositionDemandTrendOut,
+  PositionDiscoveryRunOut,
   PositionGraphDraft,
   CurriculumProgramOut,
   IndustryEvidenceOut,
   ProgramAnalysisOut,
   ProgramProposalOut,
-  AdminOverviewOut,
   AdminUserOut,
   AdminFeatureOut,
-  AdminAuditLogOut,
+  AdminModelConfigOut,
   AdminLlmConfigOut,
 } from '@/types'
 
@@ -57,6 +57,13 @@ export interface PromptTemplateOut {
   source_location: string
   version: number
   is_default: boolean
+  is_custom?: boolean
+  deletable?: boolean
+  runtime_status?: 'active' | 'standby' | 'pending'
+  runtime_conditional?: boolean
+  runtime_trigger?: string
+  runtime_note?: string
+  level?: 'core' | 'teaching' | 'domain' | 'reserved' | 'custom'
   updated_at: string
 }
 
@@ -78,16 +85,15 @@ export const authApi = {
 
 // ---- Admin ----
 export const adminApi = {
-  overview: () => request<AdminOverviewOut>({ method: 'get', url: '/admin/overview' }),
   users: () => request<AdminUserOut[]>({ method: 'get', url: '/admin/users' }),
   updateUser: (id: number, body: Partial<Pick<AdminUserOut, 'real_name' | 'role' | 'student_no' | 'class_name' | 'is_active'>>) =>
     request<AdminUserOut>({ method: 'patch', url: `/admin/users/${id}`, data: body }),
   features: () => request<AdminFeatureOut[]>({ method: 'get', url: '/admin/features' }),
   updateFeature: (code: string, body: Partial<Pick<AdminFeatureOut, 'enabled' | 'read_only' | 'visible_roles' | 'change_reason'>>) =>
     request<AdminFeatureOut>({ method: 'put', url: `/admin/features/${encodeURIComponent(code)}`, data: body }),
-  auditLogs: () => request<AdminAuditLogOut[]>({ method: 'get', url: '/admin/audit-logs' }),
   llmConfig: () => request<AdminLlmConfigOut>({ method: 'get', url: '/admin/llm-config' }),
-  updateLlmConfig: (body: {
+  modelConfig: () => request<AdminModelConfigOut>({ method: 'get', url: '/admin/model-config' }),
+  updateChatModelConfig: (body: {
     provider?: string | null
     model?: string | null
     base_url?: string | null
@@ -96,18 +102,38 @@ export const adminApi = {
     timeout?: number | null
     max_retries?: number | null
     use_mock?: boolean | null
-  }) => request<{ saved: Record<string, string>; notice: string }>({ method: 'put', url: '/admin/llm-config', data: body }),
-  testLlmConfig: () =>
-    request<{ available: boolean; provider: string; use_mock: boolean; error?: string }>({
+  }) => request<{ saved: Record<string, string>; notice: string }>({ method: 'put', url: '/admin/model-config/chat', data: body }),
+  updateRagModelConfig: (
+    service: 'embedding' | 'reranker',
+    body: { backend?: string | null; model?: string | null; base_url?: string | null; api_key?: string | null },
+  ) =>
+    request<{ saved: Record<string, string>; notice: string }>({
+      method: 'put',
+      url: `/admin/model-config/${service}`,
+      data: body,
+    }),
+  testModelConfig: (service: 'chat' | 'embedding' | 'reranker') =>
+    request<{ available: boolean; provider?: string; backend?: string; use_mock?: boolean; error?: string; elapsed_ms?: number; dimension?: number }>({
       method: 'post',
-      url: '/admin/llm-config/test',
-      timeout: 30000,
+      url: `/admin/model-config/${service}/test`,
+      timeout: 60000,
     }),
   prompts: () =>
     request<{ items: PromptTemplateOut[]; total: number; notice: string }>({
       method: 'get',
       url: '/admin/prompts',
     }),
+  createPrompt: (body: {
+    code: string
+    name: string
+    category: string
+    description: string
+    system_prompt: string
+    user_prompt_template: string
+    variables: string[]
+  }) => request<PromptTemplateOut>({ method: 'post', url: '/admin/prompts', data: body }),
+  deletePrompt: (code: string) =>
+    request<{ deleted: string }>({ method: 'delete', url: `/admin/prompts/${encodeURIComponent(code)}` }),
   promptRevisions: (code: string) =>
     request<PromptRevisionOut[]>({
       method: 'get',
@@ -412,47 +438,32 @@ export const teacherApi = {
       url: '/teacher/positions',
       data: body,
     }),
-  discoverPosition: (positionId: number, maxResults = 20, lookbackMonths = 0) =>
-    request<{
-      run_id: number
-      status: string
-      query_terms: string[]
-      source_domains: string[]
-      found_count: number
-      saved_count: number
-      lookback_months: number
-      stage_stats: {
-        official_search_candidates: number
-        official_structured_positions: number
-        official_structured_raw_positions: number
-        official_source_requests: number
-        official_relevant_positions: number
-        search_candidates: number
-        direct_entries: number
-        direct_search_positions: number
-        expanded_positions: number
-        fetched_pages: number
-        recruitment_semantic: number
-        relevant_positions: number
-      }
-      official_sources: Array<{
-        source: string
-        status: 'available' | 'closed' | 'maintenance' | 'access_restricted' | 'unavailable' | 'unreachable'
-        available: boolean
-        url: string
-        detail: string
-      }>
-      diagnostic: string
-      warnings: string[]
-    }>({
+  discoverPosition: (
+    positionId: number,
+    maxResults = 20,
+    lookbackMonths = 0,
+    mode: 'fast' | 'browser' = 'fast',
+  ) =>
+    request<PositionDiscoveryRunOut>({
       method: 'post',
       url: `/teacher/positions/${positionId}/discover`,
       data: {
         max_results: maxResults,
         lookback_months: lookbackMonths,
         confirm_public_search: true,
+        mode,
       },
-      timeout: 180000,
+      timeout: mode === 'browser' ? 30000 : 180000,
+    }),
+  discoveryRun: (positionId: number, runId: number) =>
+    request<PositionDiscoveryRunOut>({
+      method: 'get',
+      url: `/teacher/positions/${positionId}/discovery-runs/${runId}`,
+    }),
+  cancelDiscoveryRun: (positionId: number, runId: number) =>
+    request<PositionDiscoveryRunOut>({
+      method: 'post',
+      url: `/teacher/positions/${positionId}/discovery-runs/${runId}/cancel`,
     }),
   refreshPositionDates: (positionId: number) =>
     request<{

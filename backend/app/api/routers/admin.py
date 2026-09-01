@@ -393,3 +393,196 @@ async def test_llm_config(user: AdminUser, session: DBSession) -> dict:
     except Exception as exc:  # noqa: BLE001
         result = {"available": False, "provider": "error", "use_mock": False, "error": str(exc)}
     return ok(result)
+
+
+# ---------- 分模型运行时配置（对话 / 向量 / 重排） ----------
+
+_RAG_SERVICE_FIELDS = {
+    "embedding": {
+        "backend": "embedding_backend",
+        "model": "embedding_model",
+        "base_url": "embedding_base_url",
+        "api_key": "embedding_api_key",
+    },
+    "reranker": {
+        "backend": "reranker_backend",
+        "model": "reranker_model",
+        "base_url": "reranker_base_url",
+        "api_key": "reranker_api_key",
+    },
+}
+
+_RAG_SERVICE_LABELS = {
+    "embedding_backend": "向量模型后端 (api / local)",
+    "embedding_model": "向量模型标识（如 BAAI/bge-m3）",
+    "embedding_base_url": "向量服务 Base URL",
+    "embedding_api_key": "向量服务 API Key（敏感字段，明文存储）",
+    "reranker_backend": "重排模型后端 (api / local)",
+    "reranker_model": "重排模型标识（如 BAAI/bge-reranker-base）",
+    "reranker_base_url": "重排服务 Base URL",
+    "reranker_api_key": "重排服务 API Key（敏感字段，明文存储）",
+}
+
+
+class RagModelConfigBody(BaseModel):
+    backend: str | None = Field(None, max_length=16)
+    model: str | None = Field(None, max_length=128)
+    base_url: str | None = Field(None, max_length=512)
+    api_key: str | None = Field(None, max_length=2048)
+
+
+def _rag_effective(settings, db_map: dict, field_map: dict, field: str):
+    db_key = field_map[field]
+    row = db_map.get(db_key)
+    if row and row.value != "":
+        return row.value
+    return getattr(settings, db_key)
+
+
+@router.get("/model-config", summary="按模型查看当前生效配置（对话 / 向量 / 重排）")
+async def get_model_config(user: AdminUser, session: DBSession) -> dict:
+    del user
+    from app.core.config import get_settings
+    from app.models.admin import SystemSetting
+
+    settings = get_settings()
+    rows = (await session.scalars(select(SystemSetting))).all()
+    by_category: dict[str, dict[str, SystemSetting]] = {}
+    for row in rows:
+        by_category.setdefault(row.category, {})[row.key] = row
+
+    chat_db = by_category.get("llm", {})
+    chat_api_key = str(
+        (chat_db.get("llm_api_key").value if chat_db.get("llm_api_key") and chat_db["llm_api_key"].value != "" else None)
+        or settings.bailian_api_key
+        or ""
+    )
+    use_mock = str(
+        (chat_db.get("llm_use_mock").value if chat_db.get("llm_use_mock") and chat_db["llm_use_mock"].value != "" else None)
+        or settings.llm_use_mock
+    ).lower() in ("1", "true", "yes")
+    chat = {
+        "provider": "mock" if (use_mock or not chat_api_key) else "bailian",
+        "model": str(_rag_effective(settings, chat_db, _LLM_KEY_MAP, "model")),
+        "base_url": str(_rag_effective(settings, chat_db, _LLM_KEY_MAP, "base_url")),
+        "api_key_masked": _mask_api_key(chat_api_key),
+        "api_key_configured": bool(chat_api_key),
+        "temperature": float(_rag_effective(settings, chat_db, _LLM_KEY_MAP, "temperature")),
+        "timeout": int(_rag_effective(settings, chat_db, _LLM_KEY_MAP, "timeout")),
+        "max_retries": int(_rag_effective(settings, chat_db, _LLM_KEY_MAP, "max_retries")),
+        "use_mock": use_mock,
+    }
+
+    def rag_section(service: str) -> dict:
+        field_map = _RAG_SERVICE_FIELDS[service]
+        db_map = by_category.get(service, {})
+        backend = str(_rag_effective(settings, db_map, field_map, "backend") or "local")
+        api_key = str(_rag_effective(settings, db_map, field_map, "api_key") or "")
+        return {
+            "backend": backend,
+            "model": str(_rag_effective(settings, db_map, field_map, "model")),
+            "base_url": str(_rag_effective(settings, db_map, field_map, "base_url")),
+            "api_key_masked": _mask_api_key(api_key),
+            "api_key_configured": bool(api_key or settings.bailian_api_key),
+            "has_db_override": bool(db_map),
+        }
+
+    return ok(
+        {
+            "chat": chat,
+            "embedding": rag_section("embedding"),
+            "reranker": rag_section("reranker"),
+        }
+    )
+
+
+@router.put("/model-config/chat", summary="保存对话模型配置（即时生效）")
+async def update_chat_model_config(
+    body: LlmConfigUpdateBody,
+    user: AdminUser,
+    session: DBSession,
+) -> dict:
+    return await update_llm_config(body, user, session)
+
+
+@router.put("/model-config/{service}", summary="保存向量/重排模型配置（下次调用生效）")
+async def update_rag_model_config(
+    service: str,
+    body: RagModelConfigBody,
+    user: AdminUser,
+    session: DBSession,
+) -> dict:
+    if service not in _RAG_SERVICE_FIELDS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="未知模型服务")
+    field_map = _RAG_SERVICE_FIELDS[service]
+    payload = body.model_dump(exclude_unset=True)
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="未提供任何配置项")
+    if payload.get("backend") is not None and payload["backend"] not in ("api", "local"):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="backend 仅支持 api / local")
+    from app.models.admin import SystemSetting
+    from app.rag.runtime import refresh_runtime_rag_config
+
+    actor_id = int(user["user_id"])
+    saved: dict[str, str] = {}
+    for field_name, value in payload.items():
+        db_key = field_map[field_name]
+        str_value = "" if value is None else str(value)
+        existing = await session.scalar(select(SystemSetting).where(SystemSetting.key == db_key))
+        if existing is None:
+            existing = SystemSetting(key=db_key, category=service, description=_RAG_SERVICE_LABELS.get(db_key, ""))
+            session.add(existing)
+        existing.value = str_value
+        existing.version = int(getattr(existing, "version", 1) or 1) + 1
+        existing.updated_by = actor_id
+        saved[field_name] = _mask_api_key(str_value) if field_name == "api_key" else str_value
+    await session.flush()
+    await audit(session, actor_id, "model_config.update", "system_setting", service, saved)
+    await refresh_runtime_rag_config(session)
+    await session.commit()
+    return ok({"saved": saved, "notice": "配置已保存，向量/重排服务将在下一次调用时按新配置重建"})
+
+
+@router.post("/model-config/{service}/test", summary="对单个模型服务执行连通性测试")
+async def test_model_config(service: str, user: AdminUser, session: DBSession) -> dict:
+    del user, session
+    import time
+
+    started = time.monotonic()
+    if service == "chat":
+        from app.llm.gateway import get_gateway
+
+        try:
+            result = await get_gateway().health()
+            return ok({**result, "elapsed_ms": int((time.monotonic() - started) * 1000)})
+        except Exception as exc:  # noqa: BLE001
+            return ok({"available": False, "error": str(exc), "elapsed_ms": int((time.monotonic() - started) * 1000)})
+
+    if service == "embedding":
+        from app.rag.embedding import get_embedding_service
+
+        try:
+            vectors = await get_embedding_service().embed_query("油气储运模型连通性测试")
+            return ok({
+                "available": bool(vectors),
+                "backend": get_embedding_service().backend,
+                "dimension": len(vectors) if vectors else 0,
+                "elapsed_ms": int((time.monotonic() - started) * 1000),
+            })
+        except Exception as exc:  # noqa: BLE001
+            return ok({"available": False, "error": str(exc), "elapsed_ms": int((time.monotonic() - started) * 1000)})
+
+    if service == "reranker":
+        from app.rag.reranker import get_reranker
+
+        try:
+            scores = await get_reranker().rerank("管道运行", ["油气管道运行安全", "课堂教学设计"])
+            return ok({
+                "available": bool(scores),
+                "backend": get_reranker().backend,
+                "elapsed_ms": int((time.monotonic() - started) * 1000),
+            })
+        except Exception as exc:  # noqa: BLE001
+            return ok({"available": False, "error": str(exc), "elapsed_ms": int((time.monotonic() - started) * 1000)})
+
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="未知模型服务")

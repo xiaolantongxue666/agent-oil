@@ -18,7 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY backend/pyproject.toml ./
 RUN pip install --upgrade pip -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com && \
     pip install . -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com && \
-    pip install alembic "uvicorn[standard]" -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+    pip install alembic "uvicorn[standard]" -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com && \
+    python -m playwright install --with-deps chromium
 
 # 拷贝后端源码与内置权威知识目录
 COPY backend/ ./

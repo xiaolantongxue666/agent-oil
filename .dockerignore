@@ -4,6 +4,8 @@
 .env
 deploy.env
 agent-oil-images-*.tar
+agent-oil-app-*.tar
+*.7z
 .venv
 backend/.venv
 frontend/node_modules

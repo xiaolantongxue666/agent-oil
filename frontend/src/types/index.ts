@@ -32,13 +32,6 @@ export interface LoginResult {
 }
 
 // 管理端
-export interface AdminOverviewOut {
-  users: { total: number; student: number; teacher: number; admin: number; active: number }
-  resources: { knowledge_items: number; positions: number; training_tasks: number; published_programs: number }
-  features: { enabled: number; total: number }
-  recent_audits: AdminAuditLogOut[]
-}
-
 export interface AdminUserOut {
   id: number
   username: string
@@ -72,6 +65,36 @@ export interface AdminAuditLogOut {
   resource_id: string | null
   detail: string
   created_at: string
+}
+
+export interface AdminModelConfigOut {
+  chat: {
+    provider: string
+    model: string
+    base_url: string
+    api_key_masked: string
+    api_key_configured: boolean
+    temperature: number
+    timeout: number
+    max_retries: number
+    use_mock: boolean
+  }
+  embedding: {
+    backend: string
+    model: string
+    base_url: string
+    api_key_masked: string
+    api_key_configured: boolean
+    has_db_override: boolean
+  }
+  reranker: {
+    backend: string
+    model: string
+    base_url: string
+    api_key_masked: string
+    api_key_configured: boolean
+    has_db_override: boolean
+  }
 }
 
 export interface AdminLlmConfigOut {
@@ -938,9 +961,48 @@ export interface JobPostingSnapshotOut {
   snippet: string
 }
 
+export interface PositionDiscoveryCandidateOut {
+  id: number
+  source_name: string
+  source_url: string
+  title: string
+  validation_status: 'accepted' | 'rejected'
+  validation_errors: string[]
+  confidence: number
+}
+
+export interface PositionDiscoveryRunOut {
+  run_id: number
+  status: 'queued' | 'running' | 'completed' | 'empty' | 'restricted' | 'failed' | 'cancelled'
+  mode: 'fast' | 'browser'
+  stage: string
+  progress: number
+  cancel_requested: boolean
+  query_terms: string[]
+  source_domains: string[]
+  found_count: number
+  saved_count: number
+  lookback_months: number
+  stage_stats: Record<string, number>
+  official_sources: Array<{
+    source: string
+    status: string
+    available: boolean
+    url: string
+    detail: string
+  }>
+  diagnostic: string
+  warnings: string[]
+  error_summary: string
+  created_at: string
+  completed_at: string
+  candidates?: PositionDiscoveryCandidateOut[]
+}
+
 export interface TeacherPositionDetailOut {
   position: Omit<TeacherPositionOut, 'task_count' | 'snapshot_count' | 'latest_analysis' | 'published_at'>
   snapshots: JobPostingSnapshotOut[]
+  discovery_runs: PositionDiscoveryRunOut[]
   analyses: TeacherPositionAnalysis[]
 }
 

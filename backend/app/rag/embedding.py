@@ -24,6 +24,21 @@ _TOKEN_RE = re.compile(r"[a-zA-Z0-9]+|[一-鿿]")
 # 按“1 个中文字符 ≈ 1 token”的保守估算再留余量，避免超长分块导致整批 400。
 _MAX_EMBED_CHARS = 6000
 
+# 治理台发布的运行时配置覆盖（键为 Settings 字段名），优先于 .env。
+_RUNTIME_OVERRIDES: dict[str, str] = {}
+_RUNTIME_KEYS = ("embedding_backend", "embedding_model", "embedding_base_url", "embedding_api_key")
+
+
+def apply_runtime_overrides(values: dict[str, str]) -> None:
+    _RUNTIME_OVERRIDES.update({k: str(v) for k, v in values.items() if k in _RUNTIME_KEYS})
+
+
+def reset_embedding_service() -> None:
+    """丢弃当前单例，下一次获取时按最新配置重建。"""
+
+    global _service
+    _service = None
+
 
 def _tokenize(text: str) -> list[str]:
     """简易分词：拉丁词 + 中文字符。"""
@@ -41,14 +56,20 @@ class EmbeddingService:
         self._dim = self._settings.embedding_dim
         self._init()
 
+    def _get(self, attr: str):
+        """治理台运行时配置优先，其次 .env 设置。"""
+
+        value = _RUNTIME_OVERRIDES.get(attr, "")
+        return value if value != "" else getattr(self._settings, attr)
+
     def _init(self) -> None:
         # 1) API 模式优先
-        if self._settings.embedding_backend == "api":
+        if self._get("embedding_backend") == "api":
             self._init_api()
             if self._backend == "api":
                 return
         # 2) 本地模式
-        if self._settings.embedding_backend == "local":
+        if self._get("embedding_backend") == "local":
             self._init_local()
             if self._backend == "local":
                 return
@@ -56,8 +77,8 @@ class EmbeddingService:
         self._backend = "mock"
 
     def _init_api(self) -> None:
-        api_key = self._settings.embedding_api_key or self._settings.bailian_api_key
-        base_url = self._settings.embedding_base_url or self._settings.bailian_base_url
+        api_key = self._get("embedding_api_key") or self._settings.bailian_api_key
+        base_url = self._get("embedding_base_url") or self._settings.bailian_base_url
         if not api_key:
             logger.warning("Embedding API 模式：缺少 API Key，跳过")
             return
@@ -68,7 +89,7 @@ class EmbeddingService:
             self._backend = "api"
             logger.info(
                 "Embedding API 后端就绪: model={}, base={}",
-                self._settings.embedding_model,
+                self._get("embedding_model"),
                 base_url,
             )
         except Exception as exc:  # noqa: BLE001
@@ -78,10 +99,10 @@ class EmbeddingService:
         try:
             from sentence_transformers import SentenceTransformer  # type: ignore
 
-            self._model = SentenceTransformer(self._settings.embedding_model)
+            self._model = SentenceTransformer(self._get("embedding_model"))
             self._dim = self._model.get_sentence_embedding_dimension()
             self._backend = "local"
-            logger.info("Embedding 本地模型已加载: {} (dim={})", self._settings.embedding_model, self._dim)
+            logger.info("Embedding 本地模型已加载: {} (dim={})", self._get("embedding_model"), self._dim)
         except Exception as exc:  # noqa: BLE001
             logger.warning("本地 Embedding 模型不可用: {}", exc)
 
@@ -114,7 +135,7 @@ class EmbeddingService:
     # ---- API 调用 ----
 
     async def _api_embed(self, text: str) -> list[float]:
-        model = self._settings.embedding_model
+        model = self._get("embedding_model")
         resp = await self._api_client.embeddings.create(
             model=model,
             input=self._sanitize_text(text),
@@ -141,7 +162,7 @@ class EmbeddingService:
     async def _api_embed_batch(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        model = self._settings.embedding_model
+        model = self._get("embedding_model")
         # 百炼 text-embedding-v3 单次最多 10 条输入，超限整批 400
         batch_size = 10
         all_vecs: list[list[float]] = []

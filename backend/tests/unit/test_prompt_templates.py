@@ -24,7 +24,7 @@ qa_nodes = importlib.import_module("app.workflow.nodes.qa_nodes")
 def test_runtime_prompt_catalog_covers_all_model_chains():
     codes = {item.code for item in PROMPT_DEFINITIONS}
 
-    assert len(codes) == len(PROMPT_DEFINITIONS) == 14
+    assert len(codes) == len(PROMPT_DEFINITIONS) == 16
     assert {
         "structured_output_contract",
         "structured_output_repair",
@@ -40,6 +40,8 @@ def test_runtime_prompt_catalog_covers_all_model_chains():
         "question_generation",
         "position_search_terms",
         "position_graph_analysis",
+        "position_browser_action",
+        "position_browser_extract",
     } == codes
 
 

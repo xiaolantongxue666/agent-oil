@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     job_search_url: str = "https://cn.bing.com/search"
     job_search_timeout: int = 20
     job_search_max_results: int = 20
+    position_browser_headless: bool = True
+    position_browser_max_steps: int = 24
+    position_browser_max_pages: int = 12
+    position_browser_timeout_seconds: int = 30
+    position_browser_min_interval_seconds: float = 1.5
+    position_browser_source_timeout_seconds: int = 180
 
     # ---- 文件上传 ----
     upload_dir: str = "uploads"
