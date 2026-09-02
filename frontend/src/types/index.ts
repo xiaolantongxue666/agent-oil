@@ -141,9 +141,44 @@ export interface AbilityDimOut {
   score: number
   attempt_count: number
   weight: number
+  // P0-1 证据驱动画像：后端 profile 已返回，前端按需展示
+  growth_xp?: number
+  confidence?: string
+  evidence_count?: number
+  evidence_type_count?: number
+  last_evaluated_at?: string | null
 }
 
 export type AbilityProfileOut = Record<string, AbilityDimOut>
+
+// P0-1 成长 XP 汇总（/ability/growth）
+export interface AbilityGrowthOut {
+  total_xp: number
+  growth_level: number
+  xp_level_step: number
+  per_ability: Record<string, number>
+  total_evidence: number
+}
+
+// P0-1 能力证据档案（/ability/evidence）
+export interface AbilityEvidenceItemOut {
+  id: number
+  ability_key: string
+  source_type: string
+  source_id: number | null
+  raw_score: number
+  evidence_weight: number
+  difficulty_weight: number
+  final_score: number
+  metadata: Record<string, unknown>
+  created_at: string | null
+}
+
+export interface AbilityEvidenceOut {
+  items: AbilityEvidenceItemOut[]
+  total_returned: number
+  by_source_type: Record<string, number>
+}
 
 export interface AbilityHistoryOut {
   id: number
@@ -563,6 +598,8 @@ export interface AdaptiveLearningPathOut {
     mastered_count: number
     completed_answer_count: number
     path_step_count: number
+    evidence_count?: number
+    evidence_driven_steps?: number
   }
   ability_state: Array<{
     key: string
@@ -570,6 +607,11 @@ export interface AdaptiveLearningPathOut {
     score: number
     attempt_count: number
     state: 'weak' | 'learning' | 'mastered'
+    confidence?: 'low' | 'medium' | 'high'
+    evidence_count?: number
+    growth_xp?: number
+    trend?: 'insufficient' | 'improving' | 'stable' | 'declining'
+    recent_avg?: number | null
   }>
   knowledge_mastery: Array<{
     knowledge_point: string
@@ -581,15 +623,23 @@ export interface AdaptiveLearningPathOut {
     recent_scores: number[]
     safety_critical: boolean
     state: 'weak' | 'learning' | 'mastered'
+    evidence_confidence?: 'low' | 'medium' | 'high'
+    evidence_trend?: string
+    recent_low_ops?: number
   }>
   learning_path: AdaptiveLearningStep[]
   next_step: AdaptiveLearningStep | null
+  safety_alert?: {
+    safety_score: number
+    floor: number
+    message: string
+  } | null
   refresh_rule: string
 }
 
 export interface AdaptiveLearningStep {
   id: string
-  step_type: 'knowledge_review' | 'training_retry' | 'diagnostic_training'
+  step_type: 'knowledge_review' | 'training_retry' | 'diagnostic_training' | 'case_learning' | 'simulation_retry'
   title: string
   reason: string
   priority: string
@@ -601,6 +651,8 @@ export interface AdaptiveLearningStep {
   estimated_minutes: number
   route: string
   safety_critical: boolean
+  evidence_driven?: boolean
+  safety_gate_warning?: boolean
 }
 
 export interface CurriculumCourseOut {
@@ -1050,4 +1102,351 @@ export interface PositionDemandTrendOut {
     sample_count: number
     new_count: number
   }>
+}
+
+// ==== P0-2 岗位仿真实训 ====
+export interface SimulationScenarioSummary {
+  scenario_code: string
+  title: string
+  description: string
+  difficulty: number
+  estimated_minutes: number
+  target_abilities: string[]
+  teaching_simulation: boolean
+  disclaimer: string
+}
+
+export interface SimulationStageAction {
+  code: string
+  name: string
+  ability_key?: string
+  event_type?: string
+  target_type?: string
+  target_id?: string
+}
+
+export interface SimulationStageView {
+  title: string
+  goal: string
+  question?: string
+  options?: Array<{ code: string; text: string }>
+  allowed_event_types?: string[]
+  actions?: SimulationStageAction[]
+  required_fields?: string[]
+  field_templates?: Record<string, string>
+}
+
+export interface SimulationScenarioView extends SimulationScenarioSummary {
+  schema_version: number
+  task_code: string
+  position_title: string
+  briefing: { situation: string; objectives: string[]; safety_notes: string[] }
+  monitor: {
+    time_label: string
+    series: Array<{ id: string; label: string; unit: string; points: Array<[number, number]> }>
+    devices: Array<{ id: string; name: string; status: string; metrics: Record<string, string> }>
+    history: { text: string; last_normal_range: Record<string, [number, number]> }
+    alarms: Array<{ time_min: number; level: string; code: string; text: string }>
+    knowledge_docs: Array<{ id: string; title: string; summary: string }>
+  }
+  stages: Record<string, SimulationStageView>
+  rubric: { total: number; dimensions: Record<string, number>; evidence_source?: Record<string, string> }
+}
+
+export interface SimulationRuntimeEvent {
+  id: number
+  event_type: string
+  event_code: string
+  target_id: string
+  sequence_no: number
+  ability_key: string
+  raw_score: number
+  evidence_score: number
+  is_expected: boolean
+  is_critical: boolean
+  error_type: string
+  created_at: string | null
+}
+
+export interface SimulationRuntime {
+  session_id: number
+  scenario_code: string
+  stage: string
+  stage_flow: string[]
+  stage_title: string
+  stage_goal: string
+  allowed_event_types: string[]
+  pending_actions: Array<{ code: string; name: string; critical: boolean }>
+  finished: boolean
+  event_count: number
+  events: SimulationRuntimeEvent[]
+  evaluation?: {
+    final_score: number
+    dimension_scores: Record<string, number>
+    strengths: string[]
+    missing_points: string[]
+    error_types: string[]
+    explanation: string
+  } | null
+}
+
+export interface SimulationEventResult {
+  event: SimulationRuntimeEvent
+  runtime: SimulationRuntime
+}
+
+export interface SimulationReport {
+  total_score: number
+  dimension_scores: Record<string, number>
+  errors: Array<{ code: string; action: string; error_type: string; critical: boolean }>
+  missed_actions: string[]
+  missed_critical: string[]
+  critical_evidence: Array<{ event_code: string; event_type: string; raw_score: number; error_type: string }>
+  ability_evidence: Array<{
+    ability_key: string
+    source_type: string
+    score: number
+    earned: number
+    // §19 完成页：能力画像变化（before → after）与置信度
+    before_score?: number | null
+    after_score?: number | null
+    confidence?: string | null
+    evidence_count?: number | null
+  }>
+  feedback_summary: { explanation: string; strengths: string[]; disclaimer: string }
+}
+
+// ---- 专业群建设驾驶舱（P0-3 Phase 5） ----
+export interface ProfessionalGroupMajorOut {
+  id: number
+  professional_group_id: number
+  code: string
+  name: string
+  is_core_major: boolean
+  ability_weights: Record<string, number>
+  description: string
+  status: string
+  program_count?: number
+  position_count?: number
+  demand_share?: Record<string, number>
+}
+
+export interface ProfessionalGroupOut {
+  id: number
+  code: string
+  name: string
+  industry_domain: string
+  description: string
+  status: string
+  major_count?: number
+  majors: ProfessionalGroupMajorOut[]
+}
+
+export interface GroupAbilityGap {
+  ability_key: string
+  ability_name: string
+  demand_share: number
+  curriculum_share: number
+  gap: number
+  covered_by: Array<{
+    course_id: number
+    course_name: string
+    program_name: string
+    major_name: string
+    total_hours: number
+    weight: number
+    hours_weighted: number
+  }>
+}
+
+export interface GroupAnalysisOut {
+  scope: {
+    target: { type: 'group' | 'major'; id: number; code: string; name: string }
+    major_count: number
+    months: number
+    cutoff: string
+    data_boundary: string
+  }
+  summary: {
+    major_count: number
+    position_count: number
+    job_sample_count: number
+    job_sample_month_count: number
+    industry_evidence_count: number
+    authoritative_evidence_count: number
+    course_count: number
+    total_course_hours: number
+    practice_hours: number
+    practice_ratio: number
+    confidence: 'low' | 'medium' | 'high'
+    confidence_basis: string
+  }
+  majors: ProfessionalGroupMajorOut[]
+  positions: Array<{ id: number; name: string; major_name: string; sample_count: number; graph_version: number }>
+  shared_abilities: Array<{ ability_key: string; ability_name: string; weight_range: [number, number]; rule: string }>
+  major_specific_abilities: Array<{ ability_key: string; ability_name: string; rule: string; major_id: number; major_name: string; weight: number }>
+  industry_demand: Record<string, number>
+  curriculum_supply: Record<string, number>
+  ability_gaps: GroupAbilityGap[]
+  top_skills: Array<{ name: string; count: number }>
+  uncovered_skills: Array<{ name: string; count: number }>
+  industry_themes: Array<{ name: string; count: number }>
+  course_gaps: Array<{
+    ability_key: string
+    ability_name: string
+    gap: number
+    demand_share: number
+    curriculum_share: number
+    has_coverage: boolean
+    covered_by: GroupAbilityGap['covered_by']
+  }>
+  recommendations: Array<{
+    id: string
+    type: string
+    priority: 'high' | 'medium' | 'low'
+    target: string
+    target_ability: string
+    reason: string
+    suggestion: string
+    hours_delta: number
+    completed: boolean
+  }>
+  evidence_refs: Array<Record<string, unknown>>
+  generated_at: string
+}
+
+export interface GroupCourseMatrixOut {
+  group: { id: number; code: string; name: string }
+  abilities: Array<{ key: string; name: string }>
+  max_score: number
+  basis: string
+  courses: Array<{
+    course_id: number
+    course_code: string
+    name: string
+    category: string
+    total_hours: number
+    practice_hours: number
+    program_id: number
+    program_name: string
+    major_id: number | null
+    major_name: string
+    cells: Record<string, number>
+    knowledge_points: string[]
+  }>
+  generated_at: string
+}
+
+// ---- 比赛模式首页（P0-4 Phase 7）：全部数据来自后端确定性分析 ----
+export interface CompetitionMetricsOut {
+  group_count: number
+  major_count: number
+  position_count: number
+  task_count: number
+  ability_node_count: number
+  course_count: number
+  job_sample_count: number
+  industry_evidence_count: number
+  authoritative_evidence_count: number
+  top_gap_ability: string
+  top_gap_value: number
+  data_confidence: 'low' | 'medium' | 'high'
+}
+
+export interface CompetitionDiscoveryOut {
+  ability_key: AbilityKey
+  ability_name: string
+  demand_share: number
+  curriculum_share: number
+  gap: number
+  covered_by: Array<{
+    course_id: number
+    course_name: string
+    program_name: string
+    major_name: string
+    total_hours: number
+    weight: number
+    hours_weighted: number
+  }>
+  uncovered_skills: Array<{ name: string; count: number }>
+  demand_positions: Array<{ id: number; name: string; major_name: string; sample_count: number }>
+  months: number
+  data_confidence: 'low' | 'medium' | 'high'
+}
+
+export interface CompetitionEvidenceOut {
+  ability_key: AbilityKey
+  job_postings: Array<{
+    id: number
+    title: string
+    company: string
+    source_name: string
+    source_url: string
+    published_at: string | null
+    observed_at: string
+    date_confidence: string
+    skills: string[]
+    snippet: string
+  }>
+  authoritative_knowledge: Array<Record<string, unknown>>
+}
+
+export interface CompetitionScenarioOut {
+  scenario_code: string
+  title: string
+  difficulty: number
+  estimated_minutes: number
+  teaching_simulation: boolean
+  disclaimer: string
+}
+
+export interface CompetitionOverviewOut {
+  group: { type: 'group'; id: number; code: string; name: string }
+  metrics: CompetitionMetricsOut
+  discovery: CompetitionDiscoveryOut
+  evidence: CompetitionEvidenceOut
+  scenario: CompetitionScenarioOut | null
+  generated_at: string
+}
+
+// ---- P1-2 教学效果评估（真实审核数据推导，样本不足时 rate=null） ----
+export interface TeachingEffectMetric {
+  total: number
+  passed_count?: number
+  first_pass_count?: number
+  verified_count?: number
+  rate: number | null
+}
+
+export interface TeachingEffectOut {
+  question_first_pass: TeachingEffectMetric
+  graph_publish: TeachingEffectMetric
+  proposal_adoption: TeachingEffectMetric
+  citation_verifiable: TeachingEffectMetric
+  remediation_gain: { paired_student_count: number; avg_gain: number | null; basis: string }
+  basis_notes: Record<string, string>
+}
+
+// ---- P1-1 可信数据集治理（§46~§48） ----
+export interface DatasetCategoryOut {
+  key: string
+  label: string
+  count: number
+}
+
+export interface DatasetOverviewOut {
+  scale: {
+    target_position_count: number
+    job_sample_count: number
+    job_sample_month_span: number
+    company_source_count: number
+    policy_evidence_count: number
+    industry_report_count: number
+    authoritative_standard_count: number
+    reference_targets: Record<string, string>
+  }
+  categories: DatasetCategoryOut[]
+  traceability_fields: string[]
+  time_boundary: string
+  samples: Array<Record<string, unknown>>
 }

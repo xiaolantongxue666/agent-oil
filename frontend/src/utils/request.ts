@@ -46,7 +46,8 @@ service.interceptors.response.use(
     } else if (data && data.success === false) {
       ElMessage.error(data.message || '请求失败')
     } else {
-      ElMessage.error(error.message || '网络异常')
+      // FastAPI HTTPException 默认体为 { detail }，优先展示其可读信息
+      ElMessage.error(data?.detail || error.message || '网络异常')
     }
     return Promise.reject(error)
   },

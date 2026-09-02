@@ -259,8 +259,8 @@ _LLM_KEY_MAP = {
 }
 
 _LLM_DESCRIPTIONS = {
-    "llm_provider": "模型服务提供方 (bailian / mock)",
-    "llm_model": "模型标识（如 qwen-plus）",
+    "llm_provider": "模型服务提供方 (bailian / spark / mock)",
+    "llm_model": "模型标识（如 qwen-plus / generalv3.5）",
     "llm_base_url": "模型服务 Base URL",
     "llm_api_key": "API Key（敏感字段，明文存储，由审计日志保障）",
     "llm_temperature": "生成温度 (0.0 ~ 1.0)",
@@ -311,6 +311,8 @@ async def get_llm_config(user: AdminUser, session: DBSession) -> dict:
     api_key_effective = str(effective(settings.bailian_api_key, "llm_api_key"))
     use_mock_effective = str(effective(settings.llm_use_mock, "llm_use_mock")).lower() in ("1", "true", "yes")
     provider_effective = str(effective("bailian" if api_key_effective else "mock", "llm_provider")).lower()
+    if provider_effective not in ("bailian", "spark", "mock"):
+        provider_effective = "bailian"
     if use_mock_effective or not api_key_effective:
         provider_effective = "mock"
 

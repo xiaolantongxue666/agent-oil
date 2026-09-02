@@ -1,7 +1,7 @@
 """LLM 网关（第三十一节）。
 
 对外唯一入口：业务层只通过 `get_gateway()` 使用 `chat` / `chat_structured` / `health`。
-- 依据 Settings 选择 BailianProvider（有 Key 且未开启 Mock）或 MockLLMProvider。
+- 依据运行时配置的 provider 选择 BailianProvider / SparkProvider（有 Key 且未开启 Mock）或 MockLLMProvider。
 - 自带重试（仅对超时/限流/不可用等可恢复错误）、超时、结构化输出修复。
 - 不持有业务上下文，不做路由/评分/持久化——这些由工作流引擎与规则层负责。
 """
@@ -28,6 +28,7 @@ from app.llm.base import (
     StructuredOutputResult,
 )
 from app.llm.mock import MockLLMProvider
+from app.llm.spark import SPARK_DEFAULT_BASE_URL, SparkProvider
 from app.services.prompt_templates import get_prompt_messages
 
 # 可恢复错误（值得重试）
@@ -304,6 +305,15 @@ def _build_provider() -> LLMProvider:
     force_mock = use_mock or not api_key or provider_name == "mock"
     if not force_mock:
         try:
+            if provider_name == "spark":
+                # 讯飞星火（OpenAI 兼容端点）；base_url 空值时用星火官方默认
+                return SparkProvider(
+                    api_key=api_key,
+                    base_url=base_url or SPARK_DEFAULT_BASE_URL,
+                    model=model or "generalv3.5",
+                    temperature=temperature,
+                    timeout=timeout,
+                )
             return BailianProvider(
                 api_key=api_key,
                 base_url=base_url,
@@ -312,7 +322,7 @@ def _build_provider() -> LLMProvider:
                 timeout=timeout,
             )
         except LLMUnavailableError as exc:
-            logger.warning("BailianProvider 初始化失败，回退 Mock：{}", exc)
+            logger.warning("{} 初始化失败，回退 Mock：{}", provider_name, exc)
     return MockLLMProvider(model="mock-" + model, temperature=temperature)
 
 

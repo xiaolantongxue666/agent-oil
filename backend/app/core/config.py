@@ -12,6 +12,8 @@ from typing import Literal
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.enums import EvidenceSourceType
+
 
 class Settings(BaseSettings):
     """全局配置。从 .env / 环境变量加载。"""
@@ -111,6 +113,45 @@ class Settings(BaseSettings):
     ability_weight_safety: float = 0.20
     ability_weight_recording: float = 0.10
 
+    # ---- 能力评价（P0-1：EMA 能力水平 + 证据置信度 + 成长 XP） ----
+    # Ability Score 采用指数移动平均：new = old × (1 − α_eff) + evidence × α_eff，
+    # α_eff = min(ability_alpha_max, ability_ema_alpha × evidence_weight × recency_weight)。
+    # 低分证据必然拉低能力分，杜绝旧版"重复训练只涨不跌"问题。
+    ability_ema_alpha: float = 0.30
+    ability_alpha_max: float = 0.90
+    # 证据来源权重（统一配置，禁止散落写死；数值 ∈ (0, 1]）
+    ability_evidence_weight_knowledge_quiz: float = 0.50
+    ability_evidence_weight_scenario_choice: float = 0.60
+    ability_evidence_weight_scenario_diagnosis: float = 0.80
+    ability_evidence_weight_operation_event: float = 1.00
+    ability_evidence_weight_teacher_assessment: float = 1.00
+    # 置信度分档：证据数 < medium_min → low；< high_min → medium；
+    # ≥ high_min 且来源类型数 ≥ high_min_types → high
+    ability_confidence_medium_min: int = 3
+    ability_confidence_high_min: int = 8
+    ability_confidence_high_min_types: int = 2
+    # 成长 XP：投入度累计，与能力水平分离（"学了很多" ≠ "能力很强"）
+    ability_xp_base_per_evidence: int = 10
+    ability_xp_level_step: int = 100
+
+    # ---- 自适应学习（P0-5 Phase 6，§42~§44：规则阈值全部入配置，不经 LLM） ----
+    # 近期窗口：知识点掌握按最近 N 次作答；趋势对比取最近/前段各 M 条
+    adaptive_recent_answer_window: int = 3
+    adaptive_trend_window: int = 2
+    # 趋势判定：近段与远段平均分之差超过该值记 improving/declining，否则 stable
+    adaptive_trend_delta: float = 5.0
+    # §43 证据优先链触发：薄弱(< adaptive_weak_threshold) 且置信度 ≥ medium
+    # 且最近连续 ≥ count 条操作/诊断证据低于 low_score
+    adaptive_weak_threshold: float = 60.0
+    adaptive_evidence_low_score: float = 60.0
+    adaptive_recent_op_low_count: int = 2
+    # §44 安全优先：安全意识低于 floor 时安全补学置顶；
+    # 难度 ≥ gate 的训练/仿真步骤附带先完成安全项的提醒
+    adaptive_safety_score_floor: float = 80.0
+    adaptive_safety_gate_difficulty: int = 3
+    # 证据读取上限（仅取最近 N 条参与规则计算，避免全表扫描）
+    adaptive_evidence_limit: int = 300
+
     # ---- 线上判断 ----
     @property
     def llm_available(self) -> bool:
@@ -125,8 +166,48 @@ class Settings(BaseSettings):
     def allowed_extensions(self) -> set[str]:
         return {e.strip().lower().lstrip(".") for e in self.upload_allowed_extensions.split(",") if e.strip()}
 
+    def ability_evidence_weight(self, source_type: str) -> float:
+        """按证据来源类型返回权重（唯一定义处，业务代码禁止另行写死）。
+
+        未知来源类型直接抛错（fail-loud），避免静默使用错误权重。
+        """
+        weights = {
+            EvidenceSourceType.knowledge_quiz: self.ability_evidence_weight_knowledge_quiz,
+            EvidenceSourceType.scenario_choice: self.ability_evidence_weight_scenario_choice,
+            EvidenceSourceType.scenario_diagnosis: self.ability_evidence_weight_scenario_diagnosis,
+            EvidenceSourceType.operation_event: self.ability_evidence_weight_operation_event,
+            EvidenceSourceType.teacher_assessment: self.ability_evidence_weight_teacher_assessment,
+        }
+        try:
+            return weights[EvidenceSourceType(source_type)]
+        except ValueError as exc:
+            raise ValueError(f"未知能力证据来源类型: {source_type}") from exc
+
     @model_validator(mode="after")
-    def _check_weights(self) -> "Settings":
+    def _check_ability_eval(self) -> Settings:
+        """能力评价参数合法性：alpha ∈ (0,1]，权重 ∈ (0,1]，置信度阈值递增。"""
+        if not 0.0 < self.ability_ema_alpha <= 1.0:
+            raise ValueError(f"ability_ema_alpha 必须 ∈ (0,1]，当前 {self.ability_ema_alpha}")
+        if not 0.0 < self.ability_alpha_max <= 1.0:
+            raise ValueError(f"ability_alpha_max 必须 ∈ (0,1]，当前 {self.ability_alpha_max}")
+        evidence_weights = {
+            "knowledge_quiz": self.ability_evidence_weight_knowledge_quiz,
+            "scenario_choice": self.ability_evidence_weight_scenario_choice,
+            "scenario_diagnosis": self.ability_evidence_weight_scenario_diagnosis,
+            "operation_event": self.ability_evidence_weight_operation_event,
+            "teacher_assessment": self.ability_evidence_weight_teacher_assessment,
+        }
+        for name, value in evidence_weights.items():
+            if not 0.0 < value <= 1.0:
+                raise ValueError(f"ability_evidence_weight_{name} 必须 ∈ (0,1]，当前 {value}")
+        if not self.ability_confidence_medium_min < self.ability_confidence_high_min:
+            raise ValueError("置信度阈值必须满足 medium_min < high_min")
+        if self.ability_xp_level_step < 1 or self.ability_xp_base_per_evidence < 1:
+            raise ValueError("成长 XP 参数必须 ≥ 1")
+        return self
+
+    @model_validator(mode="after")
+    def _check_weights(self) -> Settings:
         total_eval = (
             self.eval_rule_weight + self.eval_semantic_weight + self.eval_llm_weight
         )

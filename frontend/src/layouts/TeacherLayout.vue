@@ -13,11 +13,17 @@ const assistantVisible = ref(false)
 const menuGroups = [
   {
     label: '教学总览',
-    items: [{ index: '/teacher/dashboard', label: '教学驾驶舱', icon: 'DataAnalysis' }],
+    items: [
+      { index: '/teacher/dashboard', label: '教学驾驶舱', icon: 'DataAnalysis' },
+      { index: '/teacher/competition', label: '比赛模式首页', icon: 'TrophyBase' },
+    ],
   },
   {
     label: '专业群建设',
-    items: [{ index: '/teacher/industry', label: '岗位与培养方案', icon: 'OfficeBuilding' }],
+    items: [
+      { index: '/teacher/professional-group', label: '专业群建设驾驶舱', icon: 'OfficeBuilding' },
+      { index: '/teacher/industry', label: '岗位与培养方案', icon: 'SetUp' },
+    ],
   },
   {
     label: '教学实施',

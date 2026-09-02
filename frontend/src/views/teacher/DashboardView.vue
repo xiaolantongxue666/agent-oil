@@ -1,13 +1,26 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { teacherApi } from '@/api'
-import { ABILITY_LABELS, type TeacherStudentOut, type TeacherTaskOut } from '@/types'
+import { analyticsExtApi, teacherApi } from '@/api'
+import { ABILITY_LABELS, type DatasetOverviewOut, type TeachingEffectOut, type TeacherStudentOut, type TeacherTaskOut } from '@/types'
 
 const router = useRouter()
 const students = ref<TeacherStudentOut[]>([])
 const tasks = ref<TeacherTaskOut[]>([])
+const effect = ref<TeachingEffectOut | null>(null)
+const dataset = ref<DatasetOverviewOut | null>(null)
 const loading = ref(true)
+
+const effectMetrics = computed(() => {
+  if (!effect.value) return []
+  const e = effect.value
+  return [
+    { label: 'AI 题库一次通过率', metric: e.question_first_pass, hint: '发布前未经修订的 AI 批次占比' },
+    { label: '图谱审核通过率', metric: e.graph_publish, hint: '已发布图谱版本占全部草稿' },
+    { label: '培养建议采纳率', metric: e.proposal_adoption, hint: 'reviewed/published 占进入审核的草案' },
+    { label: 'RAG 引用可核验率', metric: e.citation_verifiable, hint: '引用条目可回查知识库' },
+  ]
+})
 
 const totalStudents = computed(() => students.value.length)
 const totalCompleted = computed(() => students.value.reduce((sum, student) => sum + student.completed_count, 0))
@@ -39,9 +52,16 @@ const teachingPaths = [
 
 onMounted(async () => {
   try {
-    const [studentResult, taskResult] = await Promise.allSettled([teacherApi.students(), teacherApi.tasks()])
+    const [studentResult, taskResult, effectResult, datasetResult] = await Promise.allSettled([
+      teacherApi.students(),
+      teacherApi.tasks(),
+      analyticsExtApi.effectOverview(),
+      analyticsExtApi.datasetOverview(),
+    ])
     if (studentResult.status === 'fulfilled') students.value = studentResult.value
     if (taskResult.status === 'fulfilled') tasks.value = taskResult.value
+    if (effectResult.status === 'fulfilled') effect.value = effectResult.value
+    if (datasetResult.status === 'fulfilled') dataset.value = datasetResult.value
   } finally {
     loading.value = false
   }
@@ -95,6 +115,40 @@ onMounted(async () => {
             <el-icon class="arrow"><ArrowRight /></el-icon>
           </button>
         </div>
+      </section>
+    </div>
+
+    <div v-if="effect" class="dashboard-grid effect-grid">
+      <section class="ots-card">
+        <div class="card-heading"><div><span>教学效果评估</span><h3>真实审核数据指标</h3></div><el-tag size="small" effect="plain">P1-2</el-tag></div>
+        <div class="effect-list">
+          <div v-for="item in effectMetrics" :key="item.label" class="effect-row">
+            <div><strong>{{ item.label }}</strong><small>{{ item.hint }}</small></div>
+            <div class="effect-value">
+              <strong :class="{ 'no-data': item.metric.rate === null }">
+                {{ item.metric.rate === null ? '暂无数据' : `${item.metric.rate}%` }}
+              </strong>
+              <small>样本 {{ item.metric.total }}</small>
+            </div>
+          </div>
+        </div>
+        <p class="effect-basis">补学提升指标需要"补学任务完成 + 前后同维证据"配对记录，当前未采集该标记，如实显示 0，不编造提升数字。</p>
+      </section>
+
+      <section v-if="dataset" class="ots-card">
+        <div class="card-heading"><div><span>可信数据集治理</span><h3>产业证据规模与来源分类</h3></div><el-tag size="small" effect="plain">P1-1</el-tag></div>
+        <div class="dataset-summary">
+          <div><strong>{{ dataset.scale.job_sample_count }}</strong><small>招聘样本</small></div>
+          <div><strong>{{ dataset.scale.job_sample_month_span }}</strong><small>覆盖月份</small></div>
+          <div><strong>{{ dataset.scale.company_source_count }}</strong><small>企业来源</small></div>
+          <div><strong>{{ dataset.scale.authoritative_standard_count }}</strong><small>权威标准</small></div>
+        </div>
+        <div class="dataset-categories">
+          <div v-for="cat in dataset.categories" :key="cat.key" class="dataset-row">
+            <span>{{ cat.label }}</span><strong>{{ cat.count }}</strong>
+          </div>
+        </div>
+        <p class="effect-basis">{{ dataset.time_boundary }}</p>
       </section>
     </div>
 
@@ -161,6 +215,24 @@ onMounted(async () => {
 .table-heading { margin-bottom: 12px; }
 .score-value { color: var(--ots-primary-dark); font-weight: 700; }
 .stable-state { color: var(--ots-growth); font-size: 11px; }
+
+.effect-grid { margin-bottom: 0; }
+.effect-list { display: flex; flex-direction: column; gap: 8px; }
+.effect-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 10px; border-radius: 8px; background: var(--ots-bg-subtle); }
+.effect-row strong, .effect-row small { display: block; }
+.effect-row strong { font-size: 12px; }
+.effect-row small { margin-top: 2px; color: var(--ots-text-secondary); font-size: 9px; }
+.effect-value { text-align: right; }
+.effect-value strong { font-size: 14px; color: var(--ots-primary-dark); }
+.effect-value strong.no-data { color: var(--ots-text-secondary); font-size: 11px; font-weight: 400; }
+.effect-value small { color: var(--ots-text-secondary); font-size: 9px; }
+.effect-basis { margin: 10px 0 0; color: var(--ots-text-secondary); font-size: 10px; line-height: 1.6; }
+.dataset-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+.dataset-summary strong { display: block; font-size: 16px; color: var(--ots-primary-dark); }
+.dataset-summary small { color: var(--ots-text-secondary); font-size: 9px; }
+.dataset-categories { display: flex; flex-direction: column; gap: 6px; }
+.dataset-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 8px; background: var(--ots-bg-subtle); font-size: 11px; }
+.dataset-row strong { color: var(--ots-primary); }
 
 @media (max-width: 1100px) {
   .teaching-summary { grid-template-columns: 1fr; }

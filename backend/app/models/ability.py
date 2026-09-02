@@ -14,7 +14,12 @@ from app.models.base import PKMixin, TimestampMixin
 
 
 class AbilityScore(Base, PKMixin, TimestampMixin):
-    """学生某能力的当前得分（增量更新，不在此覆盖历史）。"""
+    """学生某能力的当前画像。
+
+    score 为能力水平（Ability Score，EMA，0-100，可升可降）；
+    growth_xp 为成长累计（Growth XP，只增，反映投入度），两者语义分离。
+    更新逻辑集中在 AbilityProfileService，本模型不承载业务规则。
+    """
 
     __tablename__ = "ability_scores"
     __table_args__ = (UniqueConstraint("student_id", "ability_id", name="uq_student_ability"),)
@@ -23,6 +28,13 @@ class AbilityScore(Base, PKMixin, TimestampMixin):
     ability_id: Mapped[int] = mapped_column(ForeignKey("abilities.id", ondelete="CASCADE"), index=True)
     score: Mapped[float] = mapped_column(Float, default=0.0)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    growth_xp: Mapped[int] = mapped_column(Integer, default=0)
+    confidence: Mapped[str] = mapped_column(String(8), default="low")  # low/medium/high
+    evidence_count: Mapped[int] = mapped_column(Integer, default=0)
+    evidence_type_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_evaluated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class AbilityHistory(Base, PKMixin):

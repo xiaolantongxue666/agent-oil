@@ -15,6 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.session import Base
 from app.db.types import JSONBType
 from app.models.base import PKMixin, TimestampMixin
+from app.models.professional_group import Major
 
 
 class Position(Base, PKMixin, TimestampMixin):
@@ -25,6 +26,10 @@ class Position(Base, PKMixin, TimestampMixin):
     code: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(128))
     major: Mapped[str] = mapped_column(String(64), default="油气储运工程")
+    # P0-3 兼容列：与 CurriculumProgram.major_id 同步由 seed 回填，专业→岗位链路
+    major_id: Mapped[int | None] = mapped_column(
+        ForeignKey("majors.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     description: Mapped[str] = mapped_column(String(512), default="")
     aliases: Mapped[list[Any]] = mapped_column(JSONBType, default=list)
     status: Mapped[str] = mapped_column(String(24), default="published", index=True)
@@ -36,6 +41,7 @@ class Position(Base, PKMixin, TimestampMixin):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     job_tasks: Mapped[list[JobTask]] = relationship(back_populates="position", cascade="all, delete-orphan")
+    major_ref: Mapped[Major | None] = relationship("Major")
 
 
 class Ability(Base, PKMixin, TimestampMixin):

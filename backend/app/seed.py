@@ -16,7 +16,7 @@ import hashlib
 from collections import defaultdict
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, func, inspect, select, text
+from sqlalchemy import delete, func, inspect, select, text, update
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,34 +28,38 @@ from app.db.session import AsyncSessionLocal, Base, engine
 from app.evidence.catalog import load_verified_public_evidence
 from app.knowledge.catalog import load_authoritative_knowledge
 from app.models import (
-    AdminAuditLog,
     Ability,
+    AbilityEvidence,
     AbilityHistory,
     AbilityScore,
+    AdminAuditLog,
     ChatMessage,
     ChatSession,
     CurriculumCourse,
     CurriculumProgram,
     ErrorRecord,
-    FeatureConfig,
     EvaluationResult,
+    FeatureConfig,
     IndustryEvidence,
-    JobTask,
     JobPostingSnapshot,
+    JobTask,
     KnowledgeChunk,
     KnowledgeEvidenceRelation,
     KnowledgeItem,
     KnowledgePoint,
     LearningRecommendation,
+    Major,
     Position,
-    PositionAnalysisRun,
     PositionAbilityRelation,
+    PositionAnalysisRun,
     PositionDiscoveryRun,
+    ProfessionalGroup,
     ProgramAdjustmentProposal,
     SkillPoint,
     StudentAnswer,
-    TeachingPlan,
     TaskAbilityRelation,
+    TeachingPlan,
+    TrainingActionEvent,
     TrainingChoiceAnswer,
     TrainingOption,
     TrainingQuestion,
@@ -101,6 +105,67 @@ def _upgrade_legacy_schema(sync_connection: Connection) -> None:
                     text(f"ALTER TABLE knowledge_chunks ADD COLUMN {column} {definition}")
                 )
                 logger.info("兼容升级：knowledge_chunks.{} 已补齐", column)
+    if "ability_scores" in inspector.get_table_names():
+        ability_existing = {column["name"] for column in inspector.get_columns("ability_scores")}
+        ability_additions = {
+            "growth_xp": "INTEGER NOT NULL DEFAULT 0",
+            "confidence": "VARCHAR(8) NOT NULL DEFAULT 'low'",
+            "evidence_count": "INTEGER NOT NULL DEFAULT 0",
+            "evidence_type_count": "INTEGER NOT NULL DEFAULT 0",
+            "last_evaluated_at": "DATETIME",
+        }
+        for column, definition in ability_additions.items():
+            if column not in ability_existing:
+                sync_connection.execute(
+                    text(f"ALTER TABLE ability_scores ADD COLUMN {column} {definition}")
+                )
+                logger.info("兼容升级：ability_scores.{} 已补齐", column)
+
+
+    if "positions" in inspector.get_table_names():
+        pos_existing = {column["name"] for column in inspector.get_columns("positions")}
+        pos_additions = {
+            "aliases": "JSON NOT NULL DEFAULT '[]'",
+            "status": "VARCHAR(24) NOT NULL DEFAULT 'published'",
+            "source_summary": "TEXT NOT NULL DEFAULT ''",
+            "graph_version": "INTEGER NOT NULL DEFAULT 1",
+            "created_by": "INTEGER",
+            "published_at": "DATETIME",
+        }
+        for column, definition in pos_additions.items():
+            if column not in pos_existing:
+                sync_connection.execute(
+                    text(f"ALTER TABLE positions ADD COLUMN {column} {definition}")
+                )
+                logger.info("兼容升级：positions.{} 已补齐", column)
+    if "training_tasks" in inspector.get_table_names():
+        tasks_existing = {column["name"] for column in inspector.get_columns("training_tasks")}
+        tasks_additions = {
+            "position_id": "INTEGER",
+            "job_task_id": "INTEGER",
+        }
+        for column, definition in tasks_additions.items():
+            if column not in tasks_existing:
+                sync_connection.execute(
+                    text(f"ALTER TABLE training_tasks ADD COLUMN {column} {definition}")
+                )
+                logger.info("兼容升级：training_tasks.{} 已补齐", column)
+    if "training_sessions" in inspector.get_table_names():
+        sess_existing = {column["name"] for column in inspector.get_columns("training_sessions")}
+        if "scenario_code" not in sess_existing:
+            sync_connection.execute(
+                text("ALTER TABLE training_sessions ADD COLUMN scenario_code VARCHAR(64) NOT NULL DEFAULT ''")
+            )
+            logger.info("兼容升级：training_sessions.scenario_code 已补齐")
+    # P0-3 专业群兼容列（新表 professional_groups/majors 由 create_all 兜底建出）
+    for table in ("curriculum_programs", "positions"):
+        if table in inspector.get_table_names():
+            cols = {column["name"] for column in inspector.get_columns(table)}
+            if "major_id" not in cols:
+                sync_connection.execute(
+                    text(f"ALTER TABLE {table} ADD COLUMN major_id INTEGER")
+                )
+                logger.info("兼容升级：{}.major_id 已补齐", table)
 
 
 # ===== 六维能力默认权重（与 config 一致，但权重必须存库，禁止散落硬编码） =====
@@ -526,6 +591,126 @@ async def _seed_positions(
         task_ids_by_position[blueprint["code"]] = task_ids
 
     return position_ids, task_ids_by_position
+
+
+# ===== 专业群示范配置（P0-3；教学示例数据，名称与专业特色权重均可配置） =====
+PROFESSIONAL_GROUP_SEED: dict = {
+    "code": "PG-OIL-001",
+    "name": "智慧油气储运与安全专业群",
+    "industry_domain": "油气储运与城市燃气安全",
+    "description": "面向油气储运生产运维一线，辐射城市燃气、仪表自动化与安全生产服务的示范专业群。",
+    "majors": [
+        {
+            "code": "MAJOR-OIL-STORAGE",
+            "name": "油气储运工程",  # 与既有 CurriculumProgram.major/Position.major 字符串一致，seed 回填 major_id
+            "is_core": True,
+            "ability_weights": {
+                "process_understanding": 25,
+                "equipment_recognition": 20,
+                "instrument_parameter": 15,
+                "abnormal_detection": 15,
+                "safety_awareness": 15,
+                "standard_recording": 10,
+            },
+            "description": "群内核心专业：站场运行、管输工艺与设备完整性方向。",
+        },
+        {
+            "code": "MAJOR-URBAN-GAS",
+            "name": "城市燃气工程技术",
+            "is_core": False,
+            "ability_weights": {
+                "process_understanding": 20,
+                "equipment_recognition": 15,
+                "instrument_parameter": 15,
+                "abnormal_detection": 15,
+                "safety_awareness": 25,
+                "standard_recording": 10,
+            },
+            "description": "城市门站—管网—用户终端运行与燃气安全服务方向。",
+        },
+        {
+            "code": "MAJOR-IND-AUTO",
+            "name": "工业过程自动化技术",
+            "is_core": False,
+            "ability_weights": {
+                "process_understanding": 15,
+                "equipment_recognition": 20,
+                "instrument_parameter": 30,
+                "abnormal_detection": 15,
+                "safety_awareness": 10,
+                "standard_recording": 10,
+            },
+            "description": "SCADA/PLC 仪表与控制系统运维方向（仪控特色）。",
+        },
+        {
+            "code": "MAJOR-SAFETY-TECH",
+            "name": "安全技术与管理",
+            "is_core": False,
+            "ability_weights": {
+                "process_understanding": 10,
+                "equipment_recognition": 10,
+                "instrument_parameter": 10,
+                "abnormal_detection": 25,
+                "safety_awareness": 35,
+                "standard_recording": 10,
+            },
+            "description": "HSE 风险辨识、作业许可与应急处置方向。",
+        },
+    ],
+}
+
+
+async def _seed_professional_group(session: AsyncSession) -> tuple[int, int]:
+    """幂等写入专业群与示范专业，并按名称精确匹配回填旧数据的 major_id。
+
+    返回 (专业数, 回填链接数)。旧字符串列 major 保留不删，匹配不上的一律不动。
+    """
+    payload = PROFESSIONAL_GROUP_SEED
+    group = (
+        await session.scalars(
+            select(ProfessionalGroup).where(ProfessionalGroup.code == payload["code"])
+        )
+    ).first()
+    if group is None:
+        group = ProfessionalGroup(code=payload["code"])
+        session.add(group)
+    group.name = payload["name"]
+    group.industry_domain = payload["industry_domain"]
+    group.description = payload["description"]
+    await session.flush()
+
+    known_keys = {k.value for k in AbilityKey}
+    major_ids_by_name: dict[str, int] = {}
+    for spec in payload["majors"]:
+        weights = spec["ability_weights"]
+        if set(weights) - known_keys or abs(sum(weights.values()) - 100) > 1e-9:
+            raise ValueError(
+                f"专业 {spec['code']} 的 ability_weights 非法：必须使用六维能力键且权重合计 100"
+            )  # fail-loud：配置错误禁止带病上线
+        major = (
+            await session.scalars(select(Major).where(Major.code == spec["code"]))
+        ).first()
+        if major is None:
+            major = Major(code=spec["code"])
+            session.add(major)
+        major.professional_group_id = group.id
+        major.name = spec["name"]
+        major.is_core_major = spec["is_core"]
+        major.ability_weights = weights
+        major.description = spec["description"]
+        await session.flush()
+        major_ids_by_name[major.name] = major.id
+
+    backfilled = 0
+    for name, major_id in major_ids_by_name.items():
+        for model in (Position, CurriculumProgram):
+            result = await session.execute(
+                update(model)
+                .where(model.major == name, model.major_id.is_(None))
+                .values(major_id=major_id)
+            )
+            backfilled += int(result.rowcount or 0)
+    return len(major_ids_by_name), backfilled
 
 
 async def _seed_knowledge_points(
@@ -1087,6 +1272,50 @@ async def _seed_training_tasks(session: AsyncSession) -> None:
     await session.flush()
 
 
+async def _seed_simulation_tasks(session: AsyncSession) -> int:
+    """幂等发布仿真实训任务（P0-2）：每个场景 JSON 对应一条 TrainingTask。
+
+    任务不配题库（questions 为空），选择题 /tasks 列表按 question_count==0
+    自动过滤，不会混入选择题实训。
+    """
+    from app.scenarios import load_scenarios
+
+    existing = {t.code: t for t in (await session.scalars(select(TrainingTask))).all()}
+    count = 0
+    for code, scenario in load_scenarios().items():
+        task_code = scenario["task_code"]
+        if task_code in existing:
+            continue
+        session.add(
+            TrainingTask(
+                code=task_code,
+                title=scenario["title"],
+                description=scenario["description"],
+                difficulty=scenario.get("difficulty", 3),
+                target_abilities=list(scenario.get("target_abilities") or []),
+                knowledge_points=[
+                    doc["id"] for doc in (scenario.get("monitor") or {}).get("knowledge_docs") or []
+                ],
+                required_points=[],
+                reference_points=[],
+                scenario={
+                    "simulation": True,
+                    "scenario_code": code,
+                    "note": "教学仿真实训，数据均为模拟编造。",
+                    "safety_tip": scenario.get("disclaimer", ""),
+                },
+                max_follow_ups=0,
+                estimated_minutes=scenario.get("estimated_minutes", 20),
+                status=TaskStatus.published,
+            )
+        )
+        count += 1
+    await session.flush()
+    if count:
+        logger.info("仿真实训任务发布：新增 {} 个", count)
+    return count
+
+
 async def _seed_authoritative_knowledge(session: AsyncSession) -> int:
     """幂等写入 50+ 条可追溯权威知识摘要。"""
     existing = {
@@ -1302,12 +1531,13 @@ async def seed(reset: bool = False) -> None:
                 AdminAuditLog, FeatureConfig,
                 PositionAnalysisRun, JobPostingSnapshot, PositionDiscoveryRun,
                 WorkflowExecutionLog, WorkflowInstance, TeachingPlan, EvaluationResult,
+                TrainingActionEvent,
                 TrainingChoiceAnswer, StudentAnswer, TrainingSession, TrainingOption,
                 TrainingQuestion, TrainingScenario, TrainingTask, LearningRecommendation,
-                ErrorRecord, AbilityHistory, AbilityScore, KnowledgeEvidenceRelation,
+                ErrorRecord, AbilityEvidence, AbilityHistory, AbilityScore, KnowledgeEvidenceRelation,
                 KnowledgeChunk, SkillPoint, KnowledgePoint, KnowledgeItem, TaskAbilityRelation,
                 PositionAbilityRelation, JobTask,
-                Ability, Position, ChatMessage, ChatSession, User,
+                Ability, Position, Major, ProfessionalGroup, ChatMessage, ChatSession, User,
             ]:
                 await session.execute(delete(model))
             logger.warning("已清空全部业务表（--reset，仅开发环境）")
@@ -1322,11 +1552,13 @@ async def seed(reset: bool = False) -> None:
             ability_ids,
             task_ids_by_position,
         )
+        major_count, major_link_count = await _seed_professional_group(session)
         await _seed_users(session)
         from app.services.admin_governance import ensure_default_features
         await ensure_default_features(session)
         await _seed_training_tasks(session)
         await _seed_training_questions(session)
+        simulation_task_count = await _seed_simulation_tasks(session)
         knowledge_count = await _seed_authoritative_knowledge(session)
         evidence_count = await _seed_evidence_relations(session)
         posting_count, industry_count = await _seed_verified_public_evidence(session)
@@ -1335,13 +1567,16 @@ async def seed(reset: bool = False) -> None:
         file_chunk_count = await backfill_file_chunks(session)
         await session.commit()
     logger.info(
-        "种子数据完成：清理{}个测试岗位/{}条可核验岗位样本/{}条产业证据/{}条权威知识/{}条权威关系/{}个历史文件分块已就绪",
+        "种子数据完成：清理{}个测试岗位/{}条可核验岗位样本/{}条产业证据/{}条权威知识/{}条权威关系/{}个历史文件分块/{}个仿真任务/{}个专业({}条major_id回填)已就绪",
         removed_demo_count,
         posting_count,
         industry_count,
         knowledge_count,
         evidence_count,
         file_chunk_count,
+        simulation_task_count,
+        major_count,
+        major_link_count,
     )
 
 

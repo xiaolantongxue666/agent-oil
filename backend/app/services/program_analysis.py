@@ -20,6 +20,7 @@ from app.models.curriculum import (
 from app.models.knowledge import KnowledgeItem
 from app.models.position import Ability, Position, PositionAbilityRelation
 from app.models.position_market import JobPostingSnapshot
+from app.models.professional_group import Major
 
 
 DEFAULT_MAJOR = "油气储运工程"
@@ -118,6 +119,7 @@ def program_out(program: CurriculumProgram) -> dict[str, Any]:
         "id": program.id,
         "program_code": program.program_code,
         "major": program.major,
+        "major_id": program.major_id,
         "name": program.name,
         "version": program.version,
         "status": program.status,
@@ -161,6 +163,10 @@ class ProgramAnalysisService:
             reviewed_by=teacher_id,
             published_at=_now(),
             change_summary="系统初始化的培养方案基线，后续版本必须由产业岗位证据草案经教师审核后发布。",
+            # P0-3 兼容：专业已建库时挂接 major_id（旧库无 majors 则保持空，字符串 major 仍是权威）
+            major_id=(
+                await db.execute(select(Major.id).where(Major.name == DEFAULT_MAJOR))
+            ).scalars().first(),
         )
         db.add(current)
         await db.flush()
@@ -490,6 +496,7 @@ class ProgramAnalysisService:
         new_program = CurriculumProgram(
             program_code=base.program_code,
             major=base.major,
+            major_id=base.major_id,
             name=base.name,
             version=target_version,
             status="published",

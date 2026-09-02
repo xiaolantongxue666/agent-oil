@@ -11,7 +11,10 @@ const route = useRoute()
 const menuGroups = computed(() => {
   if (auth.isTeacher) {
     return [
-      { label: '教学总览', items: [{ index: '/teacher/dashboard', label: '教师工作台', icon: 'DataAnalysis' }] },
+      { label: '教学总览', items: [
+        { index: '/teacher/dashboard', label: '教师工作台', icon: 'DataAnalysis' },
+        { index: '/competition', label: '比赛模式首页', icon: 'TrophyBase' },
+      ] },
       { label: '教学实施', items: [
         { index: '/teacher/students', label: '学生列表', icon: 'User' },
         { index: '/teacher/tasks', label: '实训任务', icon: 'Document' },
@@ -30,9 +33,13 @@ const menuGroups = computed(() => {
       { index: '/profile', label: '能力成长档案', icon: 'TrendCharts' },
       { index: '/adaptive-learning', label: '个性化学习路径', icon: 'Guide' },
     ] },
+    { label: '项目总览', items: [
+      { index: '/competition', label: '比赛模式首页', icon: 'TrophyBase' },
+    ] },
     { label: '岗位实训', items: [
       { index: '/ability-graph', label: '目标岗位能力', icon: 'Share' },
       { index: '/training', label: '岗位情境实训', icon: 'Operation' },
+      { index: '/simulation', label: '岗位仿真实训', icon: 'Monitor' },
     ] },
     { label: '学习支持', items: [
       { index: '/knowledge/library', label: '专业资料库', icon: 'Reading' },

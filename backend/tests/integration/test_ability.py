@@ -1,10 +1,32 @@
-"""能力画像集成测试（PHASE 9）。"""
+"""能力画像集成测试（PHASE 9）。
+
+集成会话共享同一 SQLite 库；演示学生的能力数据可能被训练/仿真/证据等其他
+测试文件写入，本文件通过 _reset_demo_student_profile 保证"空画像"断言
+与文件执行顺序无关（修复仅涉测试隔离，不改生产逻辑）。
+"""
 
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import delete, select
+
+from app.db.session import AsyncSessionLocal
+from app.models.ability import AbilityHistory, AbilityScore
+from app.models.ability_evidence import AbilityEvidence
+from app.models.user import User
 
 pytestmark = pytest.mark.asyncio
+
+
+async def _reset_demo_student_profile() -> None:
+    """清空演示学生的能力画像/历史/证据（仅测试隔离用）。"""
+    async with AsyncSessionLocal() as session:
+        student_id = await session.scalar(select(User.id).where(User.username == "student"))
+        assert student_id is not None
+        await session.execute(delete(AbilityEvidence).where(AbilityEvidence.student_id == student_id))
+        await session.execute(delete(AbilityHistory).where(AbilityHistory.student_id == student_id))
+        await session.execute(delete(AbilityScore).where(AbilityScore.student_id == student_id))
+        await session.commit()
 
 
 async def test_ability_profile_requires_auth(client):
@@ -14,6 +36,7 @@ async def test_ability_profile_requires_auth(client):
 
 async def test_ability_profile_empty(client, student_token):
     """新学生没有训练历史，画像全为 0。"""
+    await _reset_demo_student_profile()
     r = await client.get("/api/ability/profile", headers=student_token)
     assert r.status_code == 200
     profile = r.json()["data"]
@@ -21,13 +44,14 @@ async def test_ability_profile_empty(client, student_token):
     assert "process_understanding" in profile
     assert "safety_awareness" in profile
     # 全部为 0（无训练历史）
-    for key, dim in profile.items():
+    for dim in profile.values():
         assert dim["score"] == 0.0
         assert dim["attempt_count"] == 0
         assert "name" in dim
 
 
 async def test_ability_radar_empty(client, student_token):
+    await _reset_demo_student_profile()
     r = await client.get("/api/ability/radar", headers=student_token)
     assert r.status_code == 200
     radar = r.json()["data"]

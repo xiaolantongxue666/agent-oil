@@ -98,6 +98,8 @@ def _register_business_routers(app: FastAPI) -> None:
     """按可用性挂载业务路由（避免未完成模块阻断启动）。"""
     _try_include(app, "app.api.routers.auth", "auth")
     _try_include(app, "app.api.routers.positions", "positions")
+    # 仿真路由必须先于 training 注册：training 的 GET /{session_id} 会遮蔽 /training/simulation 列表路径
+    _try_include(app, "app.api.routers.training_simulation", "training_simulation")
     _try_include(app, "app.api.routers.training", "training")
     _try_include(app, "app.api.routers.chat", "chat")
     _try_include(app, "app.api.routers.ability", "ability")
@@ -107,6 +109,9 @@ def _register_business_routers(app: FastAPI) -> None:
     _try_include(app, "app.api.routers.knowledge", "knowledge")
     _try_include(app, "app.api.routers.prompt_admin", "prompt_admin")
     _try_include(app, "app.api.routers.program_admin", "program_admin")
+    _try_include(app, "app.api.routers.professional_group", "professional_group")
+    _try_include(app, "app.api.routers.analytics_ext", "analytics_ext")
+    _try_include(app, "app.api.routers.competition", "competition")
     _try_include(app, "app.api.routers.admin", "admin")
 
 

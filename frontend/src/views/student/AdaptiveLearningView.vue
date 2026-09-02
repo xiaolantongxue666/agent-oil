@@ -10,6 +10,21 @@ const path = ref<AdaptiveLearningPathOut | null>(null)
 
 const weakPoints = computed(() => path.value?.knowledge_mastery.filter((item) => item.state !== 'mastered') || [])
 
+const STEP_ACTIONS: Record<string, string> = {
+  knowledge_review: '去补学',
+  case_learning: '看案例',
+  training_retry: '去训练',
+  simulation_retry: '去重练',
+  diagnostic_training: '开始诊断',
+}
+const CONFIDENCE_LABELS: Record<string, string> = { low: '证据较少', medium: '置信中等', high: '置信较高' }
+const CONFIDENCE_TAG: Record<string, 'info' | 'warning' | 'success'> = { low: 'info', medium: 'warning', high: 'success' }
+const TREND_LABELS: Record<string, string> = { improving: '↑ 上升', stable: '→ 平稳', declining: '↓ 下滑', insufficient: '数据积累中' }
+
+function stepAction(type: string) {
+  return STEP_ACTIONS[type] || '去学习'
+}
+
 function stateText(value: string) {
   return { weak: '待补强', learning: '学习中', mastered: '已掌握' }[value] || value
 }
@@ -37,11 +52,18 @@ onMounted(loadData)
 <template>
   <div v-loading="loading" class="adaptive-page">
     <div class="page-head">
-      <div><h2>个性化学习路径</h2><p>每次实训结束后，系统依据你的知识点作答和能力变化动态重排补学、巩固与重练路径。</p></div>
+      <div><h2>个性化学习路径</h2><p>系统统一读取你的知识答题、情境实训、岗位仿真实训与教师评价证据，动态重排补学、案例、巩固与重练路径。</p></div>
       <el-button @click="loadData">刷新路径</el-button>
     </div>
 
     <el-alert v-if="path" :title="path.data_boundary" :description="path.refresh_rule" type="info" :closable="false" show-icon />
+    <el-alert
+      v-if="path?.safety_alert"
+      :title="path.safety_alert.message"
+      type="warning"
+      :closable="false"
+      show-icon
+    />
 
     <template v-if="path">
       <div class="metric-grid">
@@ -50,6 +72,7 @@ onMounted(loadData)
         <div class="metric"><span>学习中</span><strong>{{ path.summary.learning_count }}</strong></div>
         <div class="metric"><span>已掌握</span><strong>{{ path.summary.mastered_count }}</strong></div>
         <div class="metric"><span>动态路径步骤</span><strong>{{ path.summary.path_step_count }}</strong></div>
+        <div class="metric"><span>证据链步骤</span><strong>{{ path.summary.evidence_driven_steps ?? 0 }}</strong></div>
       </div>
 
       <el-card v-if="path.next_step" shadow="never" class="next-card">
@@ -87,10 +110,17 @@ onMounted(loadData)
               :hollow="index > 0"
             >
               <div class="path-step">
-                <div class="step-head"><b>{{ index + 1 }}. {{ step.title }}</b><el-tag size="small" effect="plain">{{ step.priority }}</el-tag></div>
+                <div class="step-head">
+                  <b>{{ index + 1 }}. {{ step.title }}</b>
+                  <span class="step-tags">
+                    <el-tag v-if="step.evidence_driven" size="small" type="primary" effect="plain">证据驱动</el-tag>
+                    <el-tag size="small" effect="plain">{{ step.priority }}</el-tag>
+                  </span>
+                </div>
                 <p>{{ step.reason }}</p>
                 <span>{{ step.estimated_minutes }} 分钟 · 难度 {{ step.difficulty }}</span>
-                <el-button size="small" @click="go(step.route)">{{ step.step_type === 'knowledge_review' ? '去补学' : '去训练' }}</el-button>
+                <div v-if="step.safety_gate_warning" class="safety-note">安全意识未达标：进入该高难度任务前，请先完成前列安全补学项</div>
+                <el-button size="small" :type="step.evidence_driven || index === 0 ? 'primary' : 'default'" @click="go(step.route)">{{ stepAction(step.step_type) }}</el-button>
               </div>
             </el-timeline-item>
           </el-timeline>
@@ -103,6 +133,13 @@ onMounted(loadData)
         <div class="ability-grid">
           <div v-for="item in path.ability_state" :key="item.key" class="ability-item">
             <span>{{ item.name }}</span><b>{{ item.score }}</b><el-tag size="small" :type="stateType(item.state)">{{ stateText(item.state) }}</el-tag>
+            <small class="ability-meta">
+              {{ TREND_LABELS[item.trend || 'insufficient'] }}
+              <template v-if="item.recent_avg != null"> · 近期均分 {{ item.recent_avg }}</template>
+            </small>
+            <el-tag v-if="item.confidence" size="small" effect="plain" :type="CONFIDENCE_TAG[item.confidence] || 'info'">
+              {{ CONFIDENCE_LABELS[item.confidence] || item.confidence }} · {{ item.evidence_count ?? 0 }} 证据
+            </el-tag>
           </div>
         </div>
       </el-card>
@@ -115,7 +152,7 @@ onMounted(loadData)
 .page-head, .next-inner, .mastery-head, .step-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 h2, h3, p { margin: 0; }
 .page-head p, .next-card p, .path-step p { color: var(--el-text-color-secondary); margin-top: 7px; }
-.metric-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.metric-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
 .metric { background: #fff; border: 1px solid var(--ots-border); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
 .metric.primary { background: linear-gradient(135deg, #e8f6f3, #f8fbff); border-color: #b8ddd5; }
 .metric span { color: var(--el-text-color-secondary); font-size: 13px; }
@@ -129,8 +166,10 @@ h2, h3, p { margin: 0; }
 .safety-note { color: #c62828; font-size: 12px; margin-top: 5px; }
 .path-step { border: 1px solid var(--ots-border); border-radius: 8px; padding: 12px; }
 .path-step span { display: inline-block; color: var(--el-text-color-secondary); font-size: 12px; margin: 9px 12px 0 0; }
+.step-tags { display: inline-flex; gap: 6px; }
 .ability-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
 .ability-item { padding: 12px; border-radius: 7px; background: #f6f8fa; display: flex; flex-direction: column; align-items: center; gap: 7px; }
 .ability-item b { color: var(--ots-primary); font-size: 20px; }
+.ability-meta { color: var(--el-text-color-secondary); font-size: 12px; }
 @media (max-width: 1100px) { .metric-grid { grid-template-columns: repeat(3, 1fr); } .content-grid { grid-template-columns: 1fr; } .ability-grid { grid-template-columns: repeat(3, 1fr); } }
 </style>

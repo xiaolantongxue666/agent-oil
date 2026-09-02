@@ -197,6 +197,7 @@ async function sendMessage() {
     thinking: true,
     streaming: true,
     statusText: '正在提交问题...',
+    showProcess: true,
   }
   messages.value.push(assistantMsg)
   await scrollToBottom()

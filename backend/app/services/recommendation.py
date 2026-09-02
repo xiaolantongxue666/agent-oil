@@ -1,14 +1,16 @@
-"""推荐引擎服务（PHASE 10）。
+"""推荐引擎服务（PHASE 10；P0-5 Phase 6 §44 安全优先入配置）。
 
 规则推荐 + 能力匹配：
 1. 读取六维能力
-2. 找到最低能力（薄弱项）
-3. 查询相关知识点
-4. 查询对应实训任务
-5. 判断当前难度
-6. 推荐下一任务
+2. 找到最低能力（薄弱项；阈值读 Settings.adaptive_weak_threshold）
+3. 安全意识低于 Settings.adaptive_safety_score_floor 时安全类置顶（§44）
+4. 查询相关知识点
+5. 查询对应实训任务
+6. 判断当前难度
+7. 推荐下一任务
 
-推荐逻辑由代码完成。AI 负责将推荐理由转换成自然语言（可选）。
+推荐逻辑由代码完成，安全优先规则不经模型。
+AI 负责将推荐理由转换成自然语言（可选）。
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.enums import TaskStatus
 from app.models.ability import AbilityScore
 from app.models.position import Ability
@@ -44,8 +47,11 @@ class RecommendationItem:
 class RecommendationService:
     """规则推荐引擎。"""
 
-    def __init__(self, weak_threshold: float = 60.0, max_recommendations: int = 5):
-        self.weak_threshold = weak_threshold
+    def __init__(self, weak_threshold: float | None = None, max_recommendations: int = 5):
+        # 阈值缺省读统一配置（§44：规则参数集中，不散落写死）
+        self.weak_threshold = (
+            weak_threshold if weak_threshold is not None else get_settings().adaptive_weak_threshold
+        )
         self.max_recommendations = max_recommendations
 
     async def generate_recommendations(
@@ -222,13 +228,18 @@ class RecommendationService:
     def _find_weak_abilities(
         self, ability_scores: dict[str, dict[str, Any]]
     ) -> list[tuple[str, dict[str, Any]]]:
-        """找到低于阈值的薄弱能力，按分数升序排列。"""
+        """找到低于阈值的能力，按分数升序；安全意识未达配置下限时置顶（§44）。"""
+        settings = get_settings()
         weak = [
             (key, info)
             for key, info in ability_scores.items()
             if info["score"] < self.weak_threshold
         ]
         weak.sort(key=lambda x: x[1]["score"])
+        safety = ability_scores.get("safety_awareness")
+        if safety is not None and safety["score"] < settings.adaptive_safety_score_floor:
+            # 安全补学优先于一切薄弱项（阈值入配置，规则不经模型）
+            weak.sort(key=lambda item: (item[0] != "safety_awareness", item[1]["score"]))
         return weak
 
     async def _find_tasks_for_ability(

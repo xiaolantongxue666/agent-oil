@@ -14,7 +14,7 @@ const testResults = ref<Record<string, TestState>>({})
 const config = ref<AdminModelConfigOut | null>(null)
 
 const chatForm = reactive({
-  provider: 'bailian' as 'bailian' | 'mock',
+  provider: 'bailian' as 'bailian' | 'spark' | 'mock',
   model: 'qwen-plus',
   base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   api_key: '',
@@ -27,7 +27,7 @@ const chatForm = reactive({
 const embeddingForm = reactive({ backend: 'api' as 'api' | 'local', model: 'BAAI/bge-m3', base_url: '', api_key: '' })
 const rerankerForm = reactive({ backend: 'api' as 'api' | 'local', model: 'BAAI/bge-reranker-base', base_url: '', api_key: '' })
 
-const modelOptions = ['qwen-plus', 'qwen-max', 'qwen-turbo', 'qwen-long', 'qwen3-235b-a22b']
+const modelOptions = ['qwen-plus', 'qwen-max', 'qwen-turbo', 'qwen-long', 'qwen3-235b-a22b', 'generalv3.5', '4.0Ultra']
 const embeddingModelOptions = ['BAAI/bge-m3', 'text-embedding-v3', 'text-embedding-v4']
 const rerankerModelOptions = ['BAAI/bge-reranker-base', 'BAAI/bge-reranker-v2-m3', 'gte-rerank-v2']
 
@@ -44,7 +44,7 @@ const chatDirty = computed(() => {
   const current = config.value.chat
   const currentUsesMock = current.provider === 'mock' || current.use_mock
   return (
-    chatForm.provider !== (currentUsesMock ? 'mock' : 'bailian')
+    chatForm.provider !== (currentUsesMock ? 'mock' : current.provider)
     || chatForm.model !== current.model
     || chatForm.base_url !== current.base_url
     || chatForm.temperature !== current.temperature
@@ -81,9 +81,17 @@ function ragReady(service: 'embedding' | 'reranker') {
 }
 
 function setRunMode(value: string | number | boolean | undefined) {
-  const provider = value === 'mock' ? 'mock' : 'bailian'
+  const provider = value === 'mock' ? 'mock' : value === 'spark' ? 'spark' : 'bailian'
   chatForm.provider = provider
   chatForm.use_mock = provider === 'mock'
+  // 切换 Provider 时带出对应的默认端点，减少误配
+  if (provider === 'spark') {
+    chatForm.base_url = 'https://spark-api-open.xf-yun.com/v1'
+    if (chatForm.model.startsWith('qwen')) chatForm.model = 'generalv3.5'
+  } else if (provider === 'bailian') {
+    chatForm.base_url = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+    if (chatForm.model === 'generalv3.5') chatForm.model = 'qwen-plus'
+  }
 }
 
 async function load() {
@@ -94,7 +102,9 @@ async function load() {
     config.value = data
     const chat = data.chat
     const currentUsesMock = chat.provider === 'mock' || chat.use_mock
-    chatForm.provider = currentUsesMock ? 'mock' : 'bailian'
+    chatForm.provider = currentUsesMock
+      ? 'mock'
+      : chat.provider === 'spark' ? 'spark' : 'bailian'
     chatForm.model = chat.model
     chatForm.base_url = chat.base_url
     chatForm.temperature = chat.temperature
@@ -246,7 +256,8 @@ onMounted(load)
         <el-form label-position="top">
           <el-form-item label="运行模式">
             <el-radio-group :model-value="chatForm.provider" @change="setRunMode">
-              <el-radio-button value="bailian">正式模型服务</el-radio-button>
+              <el-radio-button value="bailian">百炼 Qwen</el-radio-button>
+              <el-radio-button value="spark">讯飞星火</el-radio-button>
               <el-radio-button value="mock">教学演示模式</el-radio-button>
             </el-radio-group>
           </el-form-item>

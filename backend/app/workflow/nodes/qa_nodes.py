@@ -130,6 +130,8 @@ class InputGuardNode(BaseWorkflowNode):
             context.next_node = None
             logger.info("输入守卫拦截：{} ({})", result.category, context.user_input[:50])
             return context
+        # §54 业务流程可视化：输入安全校验通过（首个业务阶段事件）
+        _append_execution_trace(context, "safety", "completed", "输入已通过安全校验")
         context.next_node = "clarify"
         return context
 
@@ -720,6 +722,11 @@ class OutputGuardNode(BaseWorkflowNode):
             context.metadata["retrieval_status"] = "blocked"
             _append_execution_trace(context, "safety", "blocked", "回答未通过输出安全校验")
             logger.info("输出守卫拦截：{}", result.category)
+        else:
+            # §54 业务流程可视化：输出安全校验通过（不暴露任何模型内部内容）
+            _append_execution_trace(
+                context, "safety", "completed", "回答已通过输出安全校验"
+            )
         context.next_node = "done"
         return context
 

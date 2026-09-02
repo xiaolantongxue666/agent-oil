@@ -111,6 +111,8 @@ async def test_adaptive_path_is_personal_and_has_explicit_boundary(client, stude
             "knowledge_review",
             "training_retry",
             "diagnostic_training",
+            "case_learning",  # §43 证据优先链
+            "simulation_retry",  # §43 原仿真场景重练
         }
         assert step["route"].startswith("/")
         if step.get("task_code"):

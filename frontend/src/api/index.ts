@@ -1,6 +1,8 @@
 import { request } from '@/utils/request'
 import { useAuthStore } from '@/stores/auth'
 import type {
+  AbilityEvidenceOut,
+  AbilityGrowthOut,
   AbilityHistoryOut,
   AdaptiveLearningPathOut,
   AbilityGraphOut,
@@ -44,6 +46,17 @@ import type {
   AdminFeatureOut,
   AdminModelConfigOut,
   AdminLlmConfigOut,
+  SimulationScenarioSummary,
+  SimulationScenarioView,
+  SimulationRuntime,
+  SimulationEventResult,
+  SimulationReport,
+  ProfessionalGroupOut,
+  GroupAnalysisOut,
+  GroupCourseMatrixOut,
+  CompetitionOverviewOut,
+  TeachingEffectOut,
+  DatasetOverviewOut,
 } from '@/types'
 
 export interface PromptTemplateOut {
@@ -353,6 +366,13 @@ export const abilityApi = {
       params: { ability_key: abilityKey, limit },
     }),
   radar: () => request<RadarDataOut>({ method: 'get', url: '/ability/radar' }),
+  growth: () => request<AbilityGrowthOut>({ method: 'get', url: '/ability/growth' }),
+  evidence: (abilityKey?: string, limit = 50) =>
+    request<AbilityEvidenceOut>({
+      method: 'get',
+      url: '/ability/evidence',
+      params: { ability_key: abilityKey, limit },
+    }),
 }
 
 // ---- Position Ability Graph ----
@@ -656,4 +676,86 @@ export const programApi = {
       url: `/teacher/programs/proposals/${proposalId}/publish`,
       data: { confirm_reviewed: true },
     }),
+}
+
+// ---- 岗位仿真实训（P0-2，评分由服务端状态机+Rubric 确定，LLM 不参与） ----
+export const simulationApi = {
+  /** 可用仿真场景列表 */
+  scenarios: () =>
+    request<SimulationScenarioSummary[]>({ method: 'get', url: '/training/simulation' }),
+  /** 场景详情（学生视图，已剔除答案键） */
+  detail: (code: string) =>
+    request<SimulationScenarioView>({ method: 'get', url: `/training/simulation/${code}` }),
+  /** 开始仿真实训会话 */
+  start: (code: string) =>
+    request<SimulationRuntime>({ method: 'post', url: `/training/simulation/${code}/start` }),
+  /** 会话运行时状态 */
+  runtime: (sessionId: number) =>
+    request<SimulationRuntime>({ method: 'get', url: `/training/simulation/sessions/${sessionId}` }),
+  /** 提交行为事件（服务端判分） */
+  event: (
+    sessionId: number,
+    body: { event_type: string; event_code?: string; target_type?: string; target_id?: string; payload?: Record<string, unknown> },
+  ) =>
+    request<SimulationEventResult>({ method: 'post', url: `/training/simulation/sessions/${sessionId}/events`, data: body }),
+  /** gate 校验后推进阶段 */
+  advance: (sessionId: number) =>
+    request<SimulationRuntime>({ method: 'post', url: `/training/simulation/sessions/${sessionId}/advance` }),
+  /** 启发式提示（不含答案） */
+  hint: (sessionId: number) =>
+    request<{ hint: string }>({ method: 'post', url: `/training/simulation/sessions/${sessionId}/hint` }),
+  /** 完成实训并生成评价 + 能力证据 */
+  complete: (sessionId: number) =>
+    request<SimulationReport>({ method: 'post', url: `/training/simulation/sessions/${sessionId}/complete` }),
+}
+
+// ---- 专业群建设驾驶舱（P0-3 Phase 5，群级 Gap / 课程矩阵全部来自后端计算） ----
+export const professionalGroupApi = {
+  /** 专业群列表（含专业与特色权重） */
+  groups: () =>
+    request<ProfessionalGroupOut[]>({ method: 'get', url: '/teacher/professional-groups' }),
+  /** 专业群详情 */
+  groupDetail: (groupId: number) =>
+    request<ProfessionalGroupOut>({ method: 'get', url: `/teacher/professional-groups/${groupId}` }),
+  /** 群级产业-课程能力聚合分析（需求/供给/Gap） */
+  analysis: (groupId: number, months = 12) =>
+    request<GroupAnalysisOut>({
+      method: 'get',
+      url: `/teacher/professional-groups/${groupId}/analysis`,
+      params: { months },
+    }),
+  /** 群级课程能力矩阵（课程 × 六维，分值后端归一） */
+  courseMatrix: (groupId: number) =>
+    request<GroupCourseMatrixOut>({
+      method: 'get',
+      url: `/teacher/professional-groups/${groupId}/course-matrix`,
+    }),
+  /** 专业级产业-课程能力聚合分析 */
+  majorAnalysis: (majorId: number, months = 12) =>
+    request<GroupAnalysisOut>({
+      method: 'get',
+      url: `/teacher/professional-groups/majors/${majorId}/analysis`,
+      params: { months },
+    }),
+}
+
+// ---- 比赛模式首页（P0-4 Phase 7，数据全部来自后端确定性分析，前端零写死业务数据） ----
+export const competitionApi = {
+  /** 比赛总览：主链指标 + 真实发现案例 + 证据下钻 + 实训映射 */
+  overview: (groupId?: number, months = 12) =>
+    request<CompetitionOverviewOut>({
+      method: 'get',
+      url: '/competition/overview',
+      params: { ...(groupId ? { group_id: groupId } : {}), months },
+    }),
+}
+
+// ---- P1：教学效果评估 + 数据集治理（教师只读，真实审核数据推导） ----
+export const analyticsExtApi = {
+  /** 效果指标：AI 题库一次通过率 / 图谱审核通过率 / 培养建议采纳率 / 引用可核验率 */
+  effectOverview: () =>
+    request<TeachingEffectOut>({ method: 'get', url: '/teacher/analytics-ext/effect-overview' }),
+  /** 数据集总览：规模 + 来源四分类 + 溯源样本 */
+  datasetOverview: () =>
+    request<DatasetOverviewOut>({ method: 'get', url: '/teacher/analytics-ext/dataset-overview' }),
 }

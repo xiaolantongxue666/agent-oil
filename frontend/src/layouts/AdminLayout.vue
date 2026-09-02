@@ -28,6 +28,7 @@ const menuGroups = [
   {
     label: '工具',
     items: [
+      { index: '/admin/competition', label: '比赛模式首页', icon: 'TrophyBase' },
       { index: '/admin/assistant', label: '智能助手', icon: 'ChatLineRound' },
     ],
   },

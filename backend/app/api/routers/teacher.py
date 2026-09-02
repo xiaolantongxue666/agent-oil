@@ -36,7 +36,7 @@ from app.models.training import (
     TrainingTask,
 )
 from app.models.user import User, UserRole
-from app.services.admin_governance import enforce_feature
+from app.services.admin_governance import audit, enforce_feature
 from app.services.knowledge_evidence import KnowledgeEvidenceService
 from app.services.training_question_generator import TrainingQuestionGenerator
 
@@ -582,6 +582,16 @@ async def update_question_draft(
         )
         for option in body.options
     ]
+    # P1-2 效果评估：教师修订 AI 草稿题目（区分"一次通过"与"修改后通过"）
+    if question.generated_by_ai:
+        await audit(
+            session,
+            int(user["user_id"]),
+            "question_draft.modify",
+            "training_question",
+            question.id,
+            {"batch_code": question.batch_code},
+        )
     await session.commit()
     return ok(_question_admin_out(question))
 
@@ -639,6 +649,16 @@ async def publish_question_batch(
         question.reviewed_by = int(user["user_id"])
         question.reviewed_at = reviewed_at
     task.max_follow_ups = len(batch)
+    # P1-2 效果评估：批次级审核判定入审计日志（AI 批次用于"一次通过率"分母/分子统计）
+    ai_count = sum(1 for question in batch if question.generated_by_ai)
+    await audit(
+        session,
+        int(user["user_id"]),
+        "question_batch.publish",
+        "question_batch",
+        batch_code,
+        {"task_id": task.id, "question_count": len(batch), "ai_generated_count": ai_count},
+    )
     await session.commit()
     return ok(
         {

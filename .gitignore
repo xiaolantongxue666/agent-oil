@@ -113,3 +113,14 @@ run_backend.bat
 run_frontend.bat
 backend/start_dev.bat
 frontend/start_dev.bat
+
+# ===== 参赛/构建产物(2026-09 约定不入库) =====
+*.tar
+backend/dev.db.bak-*
+.docgen/
+.video_build/
+docs/glm/
+docs/*.pptx
+docs/*.docx
+docs/*.7z
+docs/*.png

@@ -191,6 +191,16 @@ async def update_proposal(
     if payload.get("status") == "reviewed":
         proposal.reviewed_by = int(user["user_id"])
         proposal.reviewed_at = datetime.now().astimezone()
+    # P1-2 效果评估：草案采纳/拒绝判定入审计日志（采纳=reviewed，拒绝=rejected）
+    if payload.get("status") in {"reviewed", "rejected"}:
+        await audit(
+            session,
+            int(user["user_id"]),
+            f"program_proposal.{payload['status']}",
+            "program_proposal",
+            proposal.id,
+            {"generation_method": proposal.generation_method},
+        )
     await session.commit()
     await session.refresh(proposal)
     return ok(_proposal_out(proposal))

@@ -9,6 +9,7 @@ from app.models.ability import (
     ErrorRecord,
     LearningRecommendation,
 )
+from app.models.ability_evidence import AbilityEvidence
 from app.models.admin import AdminAuditLog, FeatureConfig
 from app.models.base import PKMixin, TimestampMixin
 from app.models.chat import ChatMessage, ChatSession
@@ -34,6 +35,7 @@ from app.models.position_market import (
     PositionDiscoveryCandidate,
     PositionDiscoveryRun,
 )
+from app.models.professional_group import Major, ProfessionalGroup
 from app.models.prompt import PromptTemplate, PromptTemplateRevision
 from app.models.training import (
     EvaluationResult,
@@ -46,6 +48,7 @@ from app.models.training import (
     TrainingSession,
     TrainingTask,
 )
+from app.models.training_action_event import TrainingActionEvent
 from app.models.user import User
 from app.models.workflow import WorkflowExecutionLog, WorkflowInstance
 
@@ -54,6 +57,7 @@ __all__ = [
     "AdminAuditLog",
     "AbilityHistory",
     "AbilityScore",
+    "AbilityEvidence",
     "ChatMessage",
     "ChatSession",
     "CurriculumCourse",
@@ -69,12 +73,14 @@ __all__ = [
     "KnowledgeEvidenceRelation",
     "KnowledgePoint",
     "LearningRecommendation",
+    "Major",
     "PKMixin",
     "Position",
     "PositionAnalysisRun",
     "PositionAbilityRelation",
     "PositionDiscoveryCandidate",
     "PositionDiscoveryRun",
+    "ProfessionalGroup",
     "PromptTemplate",
     "PromptTemplateRevision",
     "ProgramAdjustmentProposal",
@@ -89,6 +95,7 @@ __all__ = [
     "TrainingQuestion",
     "TrainingSession",
     "TrainingTask",
+    "TrainingActionEvent",
     "User",
     "WorkflowExecutionLog",
     "WorkflowInstance",

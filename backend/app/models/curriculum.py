@@ -11,6 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.session import Base
 from app.db.types import JSONBType
 from app.models.base import PKMixin, TimestampMixin
+from app.models.professional_group import Major
 
 
 class CurriculumProgram(Base, PKMixin, TimestampMixin):
@@ -23,6 +24,10 @@ class CurriculumProgram(Base, PKMixin, TimestampMixin):
 
     program_code: Mapped[str] = mapped_column(String(64), index=True)
     major: Mapped[str] = mapped_column(String(128), default="油气储运工程", index=True)
+    # P0-3 兼容列：字符串 major 暂不删除；major_id 由 seed 按名称精确匹配回填（旧数据可为空）
+    major_id: Mapped[int | None] = mapped_column(
+        ForeignKey("majors.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String(255))
     version: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[str] = mapped_column(String(24), default="published", index=True)
@@ -44,6 +49,7 @@ class CurriculumProgram(Base, PKMixin, TimestampMixin):
     courses: Mapped[list[CurriculumCourse]] = relationship(
         back_populates="program", cascade="all, delete-orphan"
     )
+    major_ref: Mapped[Major | None] = relationship("Major")
 
 
 class CurriculumCourse(Base, PKMixin, TimestampMixin):

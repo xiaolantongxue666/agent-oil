@@ -3,15 +3,28 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.enums import TaskStatus, TrainingStage
 from app.db.session import Base
 from app.db.types import JSONBType
 from app.models.base import PKMixin, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.training_action_event import TrainingActionEvent
 
 
 class TrainingTask(Base, PKMixin, TimestampMixin):
@@ -76,8 +89,14 @@ class TrainingSession(Base, PKMixin, TimestampMixin):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     current_coach_question: Mapped[str] = mapped_column(Text, default="")
     question_batch_code: Mapped[str] = mapped_column(String(64), default="", index=True)
+    # P0-2 仿真实训：会话绑定的场景编码（选择题会话为空字符串）
+    scenario_code: Mapped[str] = mapped_column(String(64), default="", index=True)
 
     task: Mapped[TrainingTask] = relationship(back_populates="sessions")
+    action_events: Mapped[list[TrainingActionEvent]] = relationship(
+        back_populates="session", cascade="all, delete-orphan",
+        order_by="TrainingActionEvent.sequence_no",
+    )
     answers: Mapped[list[StudentAnswer]] = relationship(back_populates="session", cascade="all, delete-orphan")
     choice_answers: Mapped[list[TrainingChoiceAnswer]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
@@ -166,10 +185,11 @@ class EvaluationResult(Base, PKMixin, TimestampMixin):
     __tablename__ = "evaluation_results"
 
     session_id: Mapped[int] = mapped_column(ForeignKey("training_sessions.id", ondelete="CASCADE"), unique=True, index=True)
-    final_score: Mapped[float] = mapped_column(Integer, default=0)
-    rule_score: Mapped[float] = mapped_column(Integer, default=0)
-    semantic_score: Mapped[float] = mapped_column(Integer, default=0)
-    llm_score: Mapped[float] = mapped_column(Integer, default=0)
+    # 分数列必须为 Float：仿真实训 rubric 会产生小数分（Integer 曾导致截断取整）
+    final_score: Mapped[float] = mapped_column(Float, default=0.0)
+    rule_score: Mapped[float] = mapped_column(Float, default=0.0)
+    semantic_score: Mapped[float] = mapped_column(Float, default=0.0)
+    llm_score: Mapped[float] = mapped_column(Float, default=0.0)
     ability_scores: Mapped[dict[str, Any]] = mapped_column(JSONBType, default=dict)
     strengths: Mapped[list[Any]] = mapped_column(JSONBType, default=list)
     missing_points: Mapped[list[Any]] = mapped_column(JSONBType, default=list)

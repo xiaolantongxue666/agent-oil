@@ -434,6 +434,10 @@ def _evidence_citations(evidence: list[dict]) -> list[dict]:
 async def _update_ability_profile(
     evaluation_data: dict, sess: TrainingSession, session: DBSession
 ) -> None:
+    """交卷后投递能力证据并更新画像（P0-1：EMA + Evidence，非累加）。
+
+    更新失败不阻断交卷，但完整记录异常堆栈（可排查、不静默）。
+    """
     try:
         from app.services.ability_profile import AbilityProfileService
 
@@ -445,8 +449,8 @@ async def _update_ability_profile(
             final_score=float(evaluation_data["final_score"]),
             ability_scores=evaluation_data["ability_scores"],
         )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("能力画像更新失败（不影响训练完成）：{}", exc)
+    except Exception:  # noqa: BLE001
+        logger.exception("能力画像更新失败（不影响训练完成，需排查证据链路）")
 
 
 __all__ = ["router"]

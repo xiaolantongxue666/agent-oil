@@ -1,15 +1,39 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { abilityApi } from '@/api'
-import type { AbilityProfileOut, AbilityHistoryOut, AbilityItem, RadarDataOut } from '@/types'
+import type {
+  AbilityEvidenceOut,
+  AbilityGrowthOut,
+  AbilityProfileOut,
+  AbilityHistoryOut,
+  AbilityItem,
+  RadarDataOut,
+} from '@/types'
 import { ABILITY_LABELS, type AbilityKey } from '@/types'
 import EChartsRadar from '@/components/EChartsRadar.vue'
 
 const profile = ref<AbilityProfileOut | null>(null)
 const history = ref<AbilityHistoryOut[]>([])
 const radar = ref<RadarDataOut | null>(null)
+const growth = ref<AbilityGrowthOut | null>(null)
+const evidence = ref<AbilityEvidenceOut | null>(null)
 const loading = ref(true)
 const selectedAbility = ref<string>('')
+
+// P0-1 证据来源与置信度中文标签（与后端 EvidenceSourceType / confidence_for 对应）
+const SOURCE_LABELS: Record<string, string> = {
+  knowledge_quiz: '知识测验',
+  scenario_choice: '选择题实训',
+  scenario_diagnosis: '情境诊断',
+  operation_event: '仿真实操',
+  teacher_assessment: '教师评价',
+}
+const CONFIDENCE_LABELS: Record<string, string> = { low: '低', medium: '中', high: '高' }
+const CONFIDENCE_TAG: Record<string, 'info' | 'warning' | 'success'> = {
+  low: 'info',
+  medium: 'warning',
+  high: 'success',
+}
 
 const abilities = computed<AbilityItem[]>(() => {
   if (!profile.value) return []
@@ -49,17 +73,31 @@ async function loadHistory(key?: string) {
   }
 }
 
+async function loadEvidence(key?: string) {
+  try {
+    evidence.value = await abilityApi.evidence(key || undefined)
+  } catch {
+    evidence.value = null
+  }
+}
+
 function selectAbility(key: string) {
   selectedAbility.value = selectedAbility.value === key ? '' : key
   loadHistory(selectedAbility.value)
+  loadEvidence(selectedAbility.value)
 }
 
 onMounted(async () => {
   try {
-    const [p, r] = await Promise.allSettled([abilityApi.profile(), abilityApi.radar()])
+    const [p, r, g] = await Promise.allSettled([
+      abilityApi.profile(),
+      abilityApi.radar(),
+      abilityApi.growth(),
+    ])
     if (p.status === 'fulfilled') profile.value = p.value
     if (r.status === 'fulfilled') radar.value = r.value
-    await loadHistory()
+    if (g.status === 'fulfilled') growth.value = g.value
+    await Promise.all([loadHistory(), loadEvidence()])
   } finally {
     loading.value = false
   }
@@ -83,22 +121,28 @@ onMounted(async () => {
         <div class="ots-card">
           <h3 class="ots-title">能力概览</h3>
           <el-row :gutter="12" style="margin-bottom: 16px">
-            <el-col :span="8">
+            <el-col :span="6">
               <div class="stat-mini">
                 <div class="stat-mini-val">{{ averageScore }}</div>
                 <div class="stat-mini-label">平均分</div>
               </div>
             </el-col>
-            <el-col :span="8">
+            <el-col :span="6">
               <div class="stat-mini">
                 <div class="stat-mini-val">{{ totalAttempts }}</div>
                 <div class="stat-mini-label">训练次数</div>
               </div>
             </el-col>
-            <el-col :span="8">
+            <el-col :span="6">
               <div class="stat-mini">
-                <div class="stat-mini-val">{{ abilities.length }}</div>
-                <div class="stat-mini-label">维度数</div>
+                <div class="stat-mini-val">{{ growth?.total_xp ?? 0 }}</div>
+                <div class="stat-mini-label">成长 XP</div>
+              </div>
+            </el-col>
+            <el-col :span="6">
+              <div class="stat-mini">
+                <div class="stat-mini-val">LV{{ growth?.growth_level ?? 0 }}</div>
+                <div class="stat-mini-label">成长等级（{{ growth?.total_evidence ?? 0 }} 条证据）</div>
               </div>
             </el-col>
           </el-row>
@@ -117,7 +161,17 @@ onMounted(async () => {
                 <el-progress :percentage="ab.score" :stroke-width="10" :show-text="false" />
               </div>
               <div class="dim-score">{{ ab.score.toFixed(0) }}</div>
-              <div class="dim-attempts text-secondary">{{ profile?.[ab.key]?.attempt_count ?? 0 }}次</div>
+              <el-tag
+                v-if="profile?.[ab.key]?.confidence"
+                size="small"
+                effect="plain"
+                :type="CONFIDENCE_TAG[profile?.[ab.key]?.confidence as string] || 'info'"
+              >
+                置信 {{ CONFIDENCE_LABELS[profile?.[ab.key]?.confidence as string] || profile?.[ab.key]?.confidence }}
+              </el-tag>
+              <div class="dim-attempts text-secondary">
+                {{ profile?.[ab.key]?.evidence_count ?? 0 }}证据·{{ profile?.[ab.key]?.attempt_count ?? 0 }}次
+              </div>
             </div>
           </div>
           <div v-if="weakestDim" class="weak-hint">
@@ -127,6 +181,53 @@ onMounted(async () => {
         </div>
       </el-col>
     </el-row>
+
+    <!-- P0-1 能力证据档案（点击左侧维度可筛选） -->
+    <div class="ots-card">
+      <h3 class="ots-title">
+        能力证据
+        <el-tag v-if="selectedAbility" size="small" closable @close="selectAbility(selectedAbility)">
+          {{ ABILITY_LABELS[selectedAbility as AbilityKey] || selectedAbility }}
+        </el-tag>
+      </h3>
+      <div v-if="evidence && Object.keys(evidence.by_source_type).length" style="margin-bottom: 10px">
+        <el-tag
+          v-for="(count, type) in evidence.by_source_type"
+          :key="type"
+          size="small"
+          type="info"
+          effect="plain"
+          style="margin: 0 8px 4px 0"
+        >
+          {{ SOURCE_LABELS[type] || type }} × {{ count }}
+        </el-tag>
+      </div>
+      <el-table v-if="evidence?.items.length" :data="evidence.items" stripe size="small">
+        <el-table-column label="时间" width="170">
+          <template #default="{ row }">
+            {{ row.created_at ? row.created_at.slice(0, 19).replace('T', ' ') : '—' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="维度" width="110">
+          <template #default="{ row }">{{ ABILITY_LABELS[row.ability_key as AbilityKey] || row.ability_key }}</template>
+        </el-table-column>
+        <el-table-column label="来源" width="120">
+          <template #default="{ row }">
+            <el-tag size="small" effect="plain">{{ SOURCE_LABELS[row.source_type] || row.source_type }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="原始分 → 证据分" width="150">
+          <template #default="{ row }">{{ row.raw_score.toFixed(0) }} → {{ row.final_score.toFixed(1) }}</template>
+        </el-table-column>
+        <el-table-column label="证据权重" width="100">
+          <template #default="{ row }">×{{ row.evidence_weight.toFixed(2) }}</template>
+        </el-table-column>
+        <el-table-column label="难度系数">
+          <template #default="{ row }">×{{ row.difficulty_weight.toFixed(2) }}</template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-else description="暂无证据：完成实训或仿真实训后自动累积" :image-size="60" />
+    </div>
 
     <!-- 变更历史 -->
     <div class="ots-card">
