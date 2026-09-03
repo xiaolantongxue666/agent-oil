@@ -67,7 +67,7 @@ onMounted(async () => {
           <el-tag>{{ difficultyLabel(task.difficulty) }} ({{ task.difficulty }}/5)</el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="预计时间">{{ task.estimated_minutes }} 分钟</el-descriptions-item>
-        <el-descriptions-item label="实训题量">{{ task.question_count }} 道单选题</el-descriptions-item>
+        <el-descriptions-item label="训练题量">{{ task.question_count }} 道单选题</el-descriptions-item>
         <el-descriptions-item label="评分方式">数据库选项规则评分</el-descriptions-item>
         <el-descriptions-item label="目标能力" :span="2">
           <el-tag
@@ -83,12 +83,12 @@ onMounted(async () => {
       </el-descriptions>
 
       <el-button type="primary" size="large" :loading="starting" @click="startTraining">
-        开始选择题实训
+        开始训练
       </el-button>
     </div>
 
     <el-empty v-else-if="!loading" description="任务不存在">
-      <el-button @click="router.push('/training')">返回实训中心</el-button>
+      <el-button @click="router.push('/training')">返回岗位情境训练</el-button>
     </el-empty>
 
     <!-- 历史记录 -->

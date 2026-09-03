@@ -10,33 +10,35 @@ const route = useRoute()
 const auth = useAuthStore()
 const assistantVisible = ref(false)
 
-const menuGroups = [
-  {
-    label: '教学总览',
-    items: [
-      { index: '/teacher/dashboard', label: '教学驾驶舱', icon: 'DataAnalysis' },
-      { index: '/teacher/competition', label: '比赛模式首页', icon: 'TrophyBase' },
-    ],
-  },
-  {
-    label: '专业群建设',
-    items: [
-      { index: '/teacher/professional-group', label: '专业群建设驾驶舱', icon: 'OfficeBuilding' },
-      { index: '/teacher/industry', label: '岗位与培养方案', icon: 'SetUp' },
-    ],
-  },
-  {
-    label: '教学实施',
-    items: [
-      { index: '/teacher/training', label: '实训任务与题库', icon: 'Document' },
-      { index: '/teacher/learning', label: '学情诊断与复盘', icon: 'TrendCharts' },
-      { index: '/teacher/resources', label: '知识资源建设', icon: 'Collection' },
-    ],
-  },
+// Phase 2：左侧只保留 5 大任务域一级入口，不再使用 section 分组标题。
+// 专业群建设固定进入 /teacher/industry（Phase 3 将统一 Workspace Tabs）。
+// 竞赛展示是导演模式入口，只放顶部，不进左侧导航。
+const teacherNav = [
+  { index: '/teacher/dashboard', label: '教学驾驶舱', icon: 'DataAnalysis' },
+  { index: '/teacher/industry', label: '专业群建设', icon: 'OfficeBuilding' },
+  { index: '/teacher/training', label: '教学实训', icon: 'Document' },
+  { index: '/teacher/learning', label: '学情与评价', icon: 'TrendCharts' },
+  { index: '/teacher/resources', label: '教学资源', icon: 'Collection' },
 ]
 
-const activeMenu = computed(() => (
-  menuGroups.flatMap((group) => group.items).find((item) => item.index === route.path)
+// Phase 3：仍保留的独立深链（学生档案、题库工作台）按所属任务域高亮一级导航。
+// industry 相关旧链接已在路由层 redirect 为 /teacher/industry?tab=，天然命中。
+const navAlias: Array<[string, string]> = [
+  ['/teacher/students', '/teacher/learning'],
+  ['/teacher/tasks', '/teacher/training'],
+]
+function resolveNavIndex(path: string) {
+  const alias = navAlias.find(([from]) => path === from || path.startsWith(`${from}/`))
+  const target = alias ? alias[1] : path
+  return teacherNav.some((item) => item.index === target) ? target : path
+}
+
+const activeMenu = computed(() => teacherNav.find((item) => item.index === route.path))
+// 竞赛展示不在左侧导航，页头标题单独映射（避免显示旧 meta 标题「比赛模式总览」）
+const pageTitle = computed(() => (
+  route.path === '/teacher/competition'
+    ? '竞赛展示'
+    : (activeMenu.value?.label || String(route.meta.title || '教师工作台'))
 ))
 
 function logout() {
@@ -57,13 +59,10 @@ function logout() {
         <div><strong>油气储运工程</strong><small>高水平专业群建设空间</small></div>
       </div>
 
-      <el-menu :default-active="$route.path" class="teacher-menu" @select="(path: string) => router.push(path)">
-        <template v-for="group in menuGroups" :key="group.label">
-          <div class="menu-section-label">{{ group.label }}</div>
-          <el-menu-item v-for="item in group.items" :key="item.index" :index="item.index" :aria-label="item.label" :title="item.label">
-            <el-icon><component :is="item.icon" /></el-icon><span>{{ item.label }}</span>
-          </el-menu-item>
-        </template>
+      <el-menu :default-active="resolveNavIndex($route.path)" class="teacher-menu" @select="(path: string) => router.push(path)">
+        <el-menu-item v-for="item in teacherNav" :key="item.index" :index="item.index" :aria-label="item.label" :title="item.label">
+          <el-icon><component :is="item.icon" /></el-icon><span>{{ item.label }}</span>
+        </el-menu-item>
       </el-menu>
 
       <div class="aside-foot"><el-icon><CircleCheck /></el-icon><span>产业需求 · 教学实施 · 能力评价</span></div>
@@ -73,11 +72,12 @@ function logout() {
       <el-header class="teacher-header">
         <div class="header-heading">
           <span>油气储运工程专业群</span>
-          <strong>{{ activeMenu?.label || String(route.meta.title || '教师工作台') }}</strong>
+          <strong>{{ pageTitle }}</strong>
         </div>
         <div class="header-actions">
           <div class="role-chip"><el-icon><UserFilled /></el-icon>教师教学空间</div>
-          <el-button class="assistant-entry" text type="primary" @click="assistantVisible = true"><el-icon><ChatLineRound /></el-icon>教学智能助手</el-button>
+          <el-button class="competition-entry" type="primary" plain @click="router.push('/teacher/competition')"><el-icon><TrophyBase /></el-icon>竞赛展示</el-button>
+          <el-button class="assistant-entry" text type="primary" @click="assistantVisible = true"><el-icon><ChatLineRound /></el-icon>智能助手</el-button>
           <el-divider direction="vertical" />
           <div class="user-info"><span class="user-avatar">{{ (auth.user?.real_name || auth.user?.username || '师').slice(0, 1) }}</span><div><strong>{{ auth.user?.real_name || auth.user?.username }}</strong><small>专业教师</small></div></div>
           <el-button text @click="logout">退出</el-button>
@@ -118,8 +118,7 @@ function logout() {
 .major-card strong,.major-card small { display: block; }
 .major-card strong { font-size: 13px; }
 .major-card small { margin-top: 2px; color: rgba(255,255,255,.58); font-size: 10px; }
-.teacher-menu { flex: 1; padding: 4px 10px 12px; overflow-y: auto; border-right: 0; background: transparent; }
-.menu-section-label { padding: 16px 12px 7px; color: rgba(255,255,255,.45); font-size: 11px; letter-spacing: 1px; }
+.teacher-menu { flex: 1; padding: 12px 10px; overflow-y: auto; border-right: 0; background: transparent; }
 .teacher-menu :deep(.el-menu-item) { height: 44px; margin: 3px 0; border-radius: 9px; color: rgba(255,255,255,.84); }
 .teacher-menu :deep(.el-menu-item.is-active),.teacher-menu :deep(.el-menu-item:hover) { color: #fff; background: rgba(255,255,255,.13); }
 .teacher-menu :deep(.el-menu-item.is-active) { box-shadow: inset 3px 0 #8fc8ff; }
@@ -147,7 +146,7 @@ function logout() {
 @media (max-width: 768px) {
   .teacher-aside { width: 72px !important; }
   .brand { justify-content: center; padding: 15px 10px; }
-  .brand-copy,.major-card,.menu-section-label,.aside-foot,.teacher-menu :deep(.el-menu-item span) { display: none; }
+  .brand-copy,.major-card,.aside-foot,.teacher-menu :deep(.el-menu-item span) { display: none; }
   .teacher-menu { padding: 10px 8px; }
   .teacher-menu :deep(.el-menu-item) { justify-content: center; padding: 0 !important; }
   .teacher-menu :deep(.el-menu-item .el-icon) { margin: 0; }

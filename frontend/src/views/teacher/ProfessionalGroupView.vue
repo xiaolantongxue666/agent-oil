@@ -289,7 +289,7 @@ async function changeGroup(groupId: number) {
 }
 
 function gotoProposal() {
-  router.push('/teacher/programs')
+  router.push({ path: '/teacher/industry', query: { tab: 'program' } })
 }
 
 onMounted(async () => {
@@ -308,7 +308,7 @@ onMounted(async () => {
   <div v-loading="loading" class="pg-page">
     <div class="page-head">
       <div>
-        <h2>专业群建设驾驶舱</h2>
+        <h2>专业群驾驶舱</h2>
         <p>产业岗位需求、课程能力供给与能力 Gap 的群级聚合视图（不含学生实训成绩）。</p>
       </div>
       <div class="head-actions">
@@ -344,7 +344,7 @@ onMounted(async () => {
     >
       <template #title>
         {{ analysis.scope.data_boundary }}
-        数据置信度：{{ confidenceText(analysis.summary.confidence) }}（{{ analysis.summary.confidence_basis }}）
+        数据可信度：{{ confidenceText(analysis.summary.confidence) }}（{{ analysis.summary.confidence_basis }}）
       </template>
     </el-alert>
 
@@ -358,11 +358,20 @@ onMounted(async () => {
       <div class="metric"><span>权威标准证据</span><strong>{{ analysis.summary.authoritative_evidence_count }}</strong></div>
       <div class="metric metric-danger">
         <span>当前最大能力缺口</span>
-        <strong>{{ analysis.ability_gaps[0]?.ability_name || '—' }} {{ analysis.ability_gaps[0]?.gap ?? 0 }}pp</strong>
+        <!-- 无有效缺口数据时不下"0pp"结论（空态统一规范） -->
+        <strong v-if="analysis.ability_gaps.length && analysis.ability_gaps[0].gap > 0">{{ analysis.ability_gaps[0].ability_name }} +{{ analysis.ability_gaps[0].gap }}pp</strong>
+        <strong v-else class="metric-empty">暂无可验证缺口</strong>
       </div>
     </div>
 
     <div v-if="analysis" class="panel-grid">
+      <!-- Phase 8：比赛主线先「需求 vs 供给 vs Gap」，复杂关系图后置（§4） -->
+      <el-card shadow="never" class="panel-card">
+        <template #header>
+          <div class="card-head"><b>产业需求 vs 课程供给（按能力维度）</b></div>
+        </template>
+        <VChart :option="gapOption" style="height: 460px; width: 100%" autoresize />
+      </el-card>
       <el-card shadow="never" class="panel-card">
         <template #header>
           <div class="card-head">
@@ -378,12 +387,6 @@ onMounted(async () => {
           autoresize
           @click="handleRelationClick"
         />
-      </el-card>
-      <el-card shadow="never" class="panel-card">
-        <template #header>
-          <div class="card-head"><b>产业需求 vs 课程供给（按能力维度）</b></div>
-        </template>
-        <VChart :option="gapOption" style="height: 460px; width: 100%" autoresize />
       </el-card>
     </div>
 
@@ -586,6 +589,7 @@ onMounted(async () => {
 .metric { background: var(--el-bg-color); border: 1px solid var(--el-border-color-light); border-radius: 10px; padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; }
 .metric span { color: var(--el-text-color-secondary); font-size: 12px; }
 .metric strong { font-size: 18px; }
+.metric .metric-empty { font-size: 13px; color: var(--el-text-color-secondary); font-weight: 500; }
 .metric-danger strong { color: var(--el-color-danger); }
 .panel-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 14px; }
 .panel-card { border-radius: 10px; }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter, RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import BrandLockup from '@/components/BrandLockup.vue'
@@ -8,49 +8,68 @@ const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 
-const menuGroups = computed(() => {
-  if (auth.isTeacher) {
-    return [
-      { label: '教学总览', items: [
-        { index: '/teacher/dashboard', label: '教师工作台', icon: 'DataAnalysis' },
-        { index: '/competition', label: '比赛模式首页', icon: 'TrophyBase' },
-      ] },
-      { label: '教学实施', items: [
-        { index: '/teacher/students', label: '学生列表', icon: 'User' },
-        { index: '/teacher/tasks', label: '实训任务', icon: 'Document' },
-        { index: '/teacher/training-results', label: '教学实施复盘', icon: 'TrendCharts' },
-      ] },
-      { label: '学习支持', items: [
-        { index: '/ability-graph', label: '岗位能力图谱', icon: 'Share' },
-        { index: '/knowledge/library', label: '专业知识库', icon: 'Reading' },
-        { index: '/knowledge', label: '智能学习助手', icon: 'ChatLineRound' },
-      ] },
-    ]
+// DefaultLayout 仅服务学生角色（父路由 roles:['student'] 收口，教师永远走 TeacherLayout）。
+// Phase 4：5 大任务域一级导航；分组 index 用稳定逻辑 key（practice/ability/knowledge），
+// 子项 index 即真实 URL —— 本阶段不改任何 URL，只改菜单组织与命名。
+// /simulation（操作型仿真实训）与 /training（情境判断训练）不再都叫「实训」。
+interface NavLeaf { index: string; label: string }
+interface NavEntry extends NavLeaf { icon?: string; children?: NavLeaf[] }
+
+const studentNav: NavEntry[] = [
+  { index: '/student/dashboard', label: '我的成长', icon: 'HomeFilled' },
+  { index: 'practice', label: '岗位实训', icon: 'Monitor', children: [
+    { index: '/simulation', label: '岗位仿真实训' },
+    { index: '/training', label: '岗位情境训练' },
+  ] },
+  { index: 'ability', label: '能力档案', icon: 'TrendCharts', children: [
+    { index: '/profile', label: '技能画像与证据' },
+    { index: '/ability-graph', label: '目标岗位能力' },
+  ] },
+  { index: '/adaptive-learning', label: '个性化提升', icon: 'Guide' },
+  { index: 'knowledge', label: '知识助手', children: [
+    { index: '/knowledge', label: '岗位学习助手' },
+    { index: '/knowledge/library', label: '专业资料库' },
+  ], icon: 'Collection' },
+]
+
+// 深链 → 激活子项：/simulation/{code}→/simulation、/training/{id}→/training、/knowledge/library 优先于 /knowledge
+function menuIndexFor(path: string): string {
+  if (path.startsWith('/knowledge/library')) return '/knowledge/library'
+  if (path.startsWith('/knowledge')) return '/knowledge'
+  if (path.startsWith('/simulation')) return '/simulation'
+  if (path.startsWith('/training')) return '/training'
+  if (path.startsWith('/profile')) return '/profile'
+  if (path === '/ability-graph') return '/ability-graph'
+  return path
+}
+
+const activeMenu = computed(() => menuIndexFor(route.path))
+const activeLabel = computed(() => {
+  for (const entry of studentNav) {
+    if (entry.index === activeMenu.value) return entry.label
+    const child = entry.children?.find((item) => item.index === activeMenu.value)
+    if (child) return child.label
   }
-  return [
-    { label: '成长中心', items: [
-      { index: '/student/dashboard', label: '我的成长', icon: 'HomeFilled' },
-      { index: '/profile', label: '能力成长档案', icon: 'TrendCharts' },
-      { index: '/adaptive-learning', label: '个性化学习路径', icon: 'Guide' },
-    ] },
-    { label: '项目总览', items: [
-      { index: '/competition', label: '比赛模式首页', icon: 'TrophyBase' },
-    ] },
-    { label: '岗位实训', items: [
-      { index: '/ability-graph', label: '目标岗位能力', icon: 'Share' },
-      { index: '/training', label: '岗位情境实训', icon: 'Operation' },
-      { index: '/simulation', label: '岗位仿真实训', icon: 'Monitor' },
-    ] },
-    { label: '学习支持', items: [
-      { index: '/knowledge/library', label: '专业资料库', icon: 'Reading' },
-      { index: '/knowledge', label: '岗位学习助手', icon: 'ChatLineRound' },
-    ] },
-  ]
+  return String(route.meta.title || '学习中心')
 })
 
-const activeMenu = computed(() => (
-  menuGroups.value.flatMap((group) => group.items).find((item) => item.index === route.path)
-))
+// 子项 → 父分组：保证深链进入时对应一级 submenu 自动展开
+const groupOfChild: Record<string, string> = {
+  '/simulation': 'practice', '/training': 'practice',
+  '/profile': 'ability', '/ability-graph': 'ability',
+  '/knowledge': 'knowledge', '/knowledge/library': 'knowledge',
+}
+const activeGroup = computed(() => groupOfChild[activeMenu.value] ?? '')
+const menuRef = ref<{ open: (index: string) => void } | null>(null)
+watch(activeGroup, (group) => { if (group) menuRef.value?.open(group) })
+onMounted(() => { if (activeGroup.value) menuRef.value?.open(activeGroup.value) })
+
+// ≤768px 用 el-menu 真实 collapse 模式（hover 弹层可点子项），而非 CSS 隐藏文字导致子菜单不可用
+const narrowQuery = window.matchMedia('(max-width: 768px)')
+const isNarrow = ref(narrowQuery.matches)
+const onNarrowChange = (event: MediaQueryListEvent) => { isNarrow.value = event.matches }
+narrowQuery.addEventListener('change', onNarrowChange)
+onBeforeUnmount(() => narrowQuery.removeEventListener('change', onNarrowChange))
 
 function handleLogout() {
   auth.logout()
@@ -60,22 +79,27 @@ function handleLogout() {
 
 <template>
   <el-container class="student-shell">
-    <el-aside width="236px" class="student-aside">
+    <el-aside :width="isNarrow ? '72px' : '236px'" class="student-aside">
       <div class="brand">
-        <BrandLockup :subtitle="auth.isTeacher ? '教学资源与学习支持' : '岗位能力成长中心'" inverted />
+        <BrandLockup subtitle="岗位能力成长中心" inverted />
       </div>
 
       <div class="growth-card">
         <span class="growth-icon"><el-icon><Aim /></el-icon></span>
-        <div><strong>油气储运工程</strong><small>{{ auth.isTeacher ? '教师资源浏览空间' : '岗位技能成长空间' }}</small></div>
+        <div><strong>油气储运工程</strong><small>岗位技能成长空间</small></div>
       </div>
 
-      <el-menu :default-active="$route.path" class="student-menu" @select="(path: string) => router.push(path)">
-        <template v-for="group in menuGroups" :key="group.label">
-          <div class="menu-section-label">{{ group.label }}</div>
-          <el-menu-item v-for="item in group.items" :key="item.index" :index="item.index" :aria-label="item.label" :title="item.label">
-            <el-icon><component :is="item.icon" /></el-icon><span>{{ item.label }}</span>
+      <el-menu ref="menuRef" :default-active="activeMenu" :collapse="isNarrow" :collapse-transition="false" class="student-menu" @select="(path: string) => router.push(path)">
+        <template v-for="entry in studentNav" :key="entry.index">
+          <el-menu-item v-if="!entry.children" :index="entry.index" :aria-label="entry.label" :title="entry.label">
+            <el-icon><component :is="entry.icon" /></el-icon><span>{{ entry.label }}</span>
           </el-menu-item>
+          <el-sub-menu v-else :index="entry.index" :aria-label="entry.label" popper-class="student-menu-popper" teleported>
+            <template #title>
+              <el-icon><component :is="entry.icon" /></el-icon><span>{{ entry.label }}</span>
+            </template>
+            <el-menu-item v-for="child in entry.children" :key="child.index" :index="child.index" :aria-label="child.label" :title="child.label">{{ child.label }}</el-menu-item>
+          </el-sub-menu>
         </template>
       </el-menu>
 
@@ -84,10 +108,10 @@ function handleLogout() {
 
     <el-container class="student-workspace">
       <el-header class="student-header">
-        <div class="header-heading"><span>油气储运工程 · 岗位技能学习</span><strong>{{ activeMenu?.label || String(route.meta.title || '学习中心') }}</strong></div>
+        <div class="header-heading"><span>油气储运工程 · 岗位技能学习</span><strong>{{ activeLabel }}</strong></div>
         <div class="header-user">
-          <div class="role-chip"><el-icon><Opportunity /></el-icon>{{ auth.isTeacher ? '教师资源视图' : '学生成长空间' }}</div>
-          <div class="user-info"><span class="user-avatar">{{ (auth.user?.real_name || auth.user?.username || '学').slice(0, 1) }}</span><div><strong>{{ auth.user?.real_name || auth.user?.username }}</strong><small>{{ auth.isTeacher ? '专业教师' : '学习者' }}</small></div></div>
+          <div class="role-chip"><el-icon><Opportunity /></el-icon>学生成长空间</div>
+          <div class="user-info"><span class="user-avatar">{{ (auth.user?.real_name || auth.user?.username || '学').slice(0, 1) }}</span><div><strong>{{ auth.user?.real_name || auth.user?.username }}</strong><small>学习者</small></div></div>
           <el-button text @click="handleLogout">退出</el-button>
         </div>
       </el-header>
@@ -113,8 +137,12 @@ function handleLogout() {
 .growth-card strong,.growth-card small { display: block; }
 .growth-card strong { font-size: 13px; }
 .growth-card small { margin-top: 2px; color: rgba(255,255,255,.58); font-size: 10px; }
-.student-menu { flex: 1; padding: 4px 10px 12px; overflow-y: auto; border-right: 0; background: transparent; }
-.menu-section-label { padding: 16px 12px 7px; color: rgba(255,255,255,.45); font-size: 11px; letter-spacing: 1px; }
+.student-menu { flex: 1; padding: 4px 10px 12px; overflow-y: auto; border-right: 0; background: transparent; --el-menu-bg-color: transparent; --el-menu-text-color: rgba(255,255,255,.84); --el-menu-hover-bg-color: rgba(255,255,255,.13); --el-menu-active-color: #fff; }
+.student-menu :deep(.el-sub-menu__title) { height: 44px; margin: 3px 0; border-radius: 9px; }
+.student-menu :deep(.el-sub-menu__icon-arrow) { color: rgba(255,255,255,.55); }
+.student-menu :deep(.el-sub-menu .el-menu) { padding-bottom: 2px; background: transparent; border-right: 0; }
+/* 二级项：更小字号 + 缩进，与一级形成清晰层级（§11） */
+.student-menu :deep(.el-sub-menu .el-menu-item) { height: 38px; margin: 2px 0; font-size: 12.5px; color: rgba(255,255,255,.72); }
 .student-menu :deep(.el-menu-item) { height: 44px; margin: 3px 0; border-radius: 9px; color: rgba(255,255,255,.84); }
 .student-menu :deep(.el-menu-item.is-active),.student-menu :deep(.el-menu-item:hover) { color: #fff; background: rgba(255,255,255,.13); }
 .student-menu :deep(.el-menu-item.is-active) { box-shadow: inset 3px 0 #91dfb6; }
@@ -137,12 +165,10 @@ function handleLogout() {
 
 @media (max-width: 1000px) { .role-chip { display: none; } }
 @media (max-width: 768px) {
-  .student-aside { width: 72px !important; }
   .brand { justify-content: center; padding: 15px 10px; }
-  .brand-copy,.growth-card,.menu-section-label,.aside-foot,.student-menu :deep(.el-menu-item span) { display: none; }
-  .student-menu { padding: 10px 8px; }
-  .student-menu :deep(.el-menu-item) { justify-content: center; padding: 0 !important; }
-  .student-menu :deep(.el-menu-item .el-icon) { margin: 0; }
+  .brand-copy,.growth-card,.aside-foot { display: none; }
+  /* collapse 模式由 el-menu 自身处理图标与子菜单弹层，不再 CSS 隐藏文字 */
+  .student-menu { padding: 10px 4px; }
   .student-header { height: 60px; padding: 0 14px; }
   .header-heading span,.user-info div { display: none; }
   .header-heading strong { margin: 0; font-size: 15px; }

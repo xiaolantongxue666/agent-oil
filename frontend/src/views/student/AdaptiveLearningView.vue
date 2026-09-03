@@ -17,7 +17,7 @@ const STEP_ACTIONS: Record<string, string> = {
   simulation_retry: '去重练',
   diagnostic_training: '开始诊断',
 }
-const CONFIDENCE_LABELS: Record<string, string> = { low: '证据较少', medium: '置信中等', high: '置信较高' }
+const CONFIDENCE_LABELS: Record<string, string> = { low: '较低', medium: '中', high: '高' }
 const CONFIDENCE_TAG: Record<string, 'info' | 'warning' | 'success'> = { low: 'info', medium: 'warning', high: 'success' }
 const TREND_LABELS: Record<string, string> = { improving: '↑ 上升', stable: '→ 平稳', declining: '↓ 下滑', insufficient: '数据积累中' }
 
@@ -52,7 +52,7 @@ onMounted(loadData)
 <template>
   <div v-loading="loading" class="adaptive-page">
     <div class="page-head">
-      <div><h2>个性化学习路径</h2><p>系统统一读取你的知识答题、情境实训、岗位仿真实训与教师评价证据，动态重排补学、案例、巩固与重练路径。</p></div>
+      <div><h2>个性化学习路径</h2><p>系统统一读取你的知识答题、岗位情境训练、岗位仿真实训与教师评价证据，动态重排补学、案例、巩固与重练路径。</p></div>
       <el-button @click="loadData">刷新路径</el-button>
     </div>
 
@@ -137,8 +137,14 @@ onMounted(loadData)
               {{ TREND_LABELS[item.trend || 'insufficient'] }}
               <template v-if="item.recent_avg != null"> · 近期均分 {{ item.recent_avg }}</template>
             </small>
-            <el-tag v-if="item.confidence" size="small" effect="plain" :type="CONFIDENCE_TAG[item.confidence] || 'info'">
-              {{ CONFIDENCE_LABELS[item.confidence] || item.confidence }} · {{ item.evidence_count ?? 0 }} 证据
+            <el-tag
+              v-if="item.confidence"
+              size="small"
+              effect="plain"
+              :type="CONFIDENCE_TAG[item.confidence] || 'info'"
+              title="能力置信度表示证据充分程度，不等同于能力高低"
+            >
+              置信度 {{ CONFIDENCE_LABELS[item.confidence] || item.confidence }} · {{ item.evidence_count ?? 0 }} 条证据
             </el-tag>
           </div>
         </div>

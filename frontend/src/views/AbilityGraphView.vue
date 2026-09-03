@@ -513,19 +513,25 @@ onMounted(async () => {
       ? queryPosition
       : data.heatmap.positions[0]?.id ?? null
   } catch {
-    error.value = '岗位能力图谱加载失败，请确认后端已执行种子数据。'
+    error.value = '暂时无法获取能力图谱数据，请稍后重试或联系管理员确认基础数据已初始化。'
   } finally {
     loading.value = false
   }
 })
 
 watch(selectedPositionId, (value) => loadDemandTrend(value))
+
+// 专业群建设 Workspace 内本组件常驻挂载：从岗位洞察下钻（?position=）时同步选中岗位
+watch(() => route.query.position, (value) => {
+  const id = Number(value || 0)
+  if (id && graph.value?.heatmap.positions.some((item) => item.id === id)) selectedPositionId.value = id
+})
 </script>
 
 <template>
   <div class="ots-page" v-loading="loading">
     <div class="ots-card">
-      <h2 class="ots-title">岗位能力图谱</h2>
+      <h2 class="ots-title">{{ route.path.startsWith('/ability-graph') ? '目标岗位能力' : '岗位能力图谱' }}</h2>
       <p class="text-secondary" style="margin: 0 0 12px">
         岗位 → 典型工作任务 → 能力维度 → 知识点 → 技能点。节点和关系由数据库实时生成。
       </p>
@@ -611,7 +617,7 @@ watch(selectedPositionId, (value) => loadDemandTrend(value))
               </p>
             </div>
             <el-tag v-if="demand" :type="demand.summary.confidence === 'high' ? 'success' : demand.summary.confidence === 'medium' ? 'warning' : 'info'">
-              数据置信度：{{ confidenceLabel }}
+              数据可信度：{{ confidenceLabel }}
             </el-tag>
           </div>
           <template v-if="demand && demand.summary.total_evidence_count > 0">

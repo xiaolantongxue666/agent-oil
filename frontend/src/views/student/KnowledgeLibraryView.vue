@@ -101,7 +101,7 @@ onMounted(() => {
 <template>
   <div class="ots-page knowledge-page" v-loading="loading">
     <div class="page-header">
-      <h2>📚 专业知识库</h2>
+      <h2>专业资料库</h2>
       <p class="text-secondary">浏览油气储运工程专业知识文档，支持按能力维度和关键词筛选。</p>
     </div>
 

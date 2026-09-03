@@ -329,7 +329,7 @@ onMounted(() => {
     <div class="page-header">
       <div style="display: flex; align-items: center; justify-content: space-between">
         <div>
-          <h2 style="margin: 0">📚 知识库管理</h2>
+          <h2 style="margin: 0">知识资源建设</h2>
           <p class="text-secondary" style="margin: 4px 0 0">管理专业知识文档，支持手动新增和文件导入。</p>
         </div>
         <div style="display: flex; gap: 8px">

@@ -154,7 +154,7 @@ onMounted(async () => {
 
       <!-- 操作 -->
       <div class="ots-card actions">
-        <el-button @click="router.push('/training')">返回实训中心</el-button>
+        <el-button @click="router.push('/training')">返回岗位情境训练</el-button>
         <el-button type="primary" @click="router.push(`/training/${session?.task_code}`)">
           再次训练
         </el-button>
@@ -163,7 +163,7 @@ onMounted(async () => {
     </div>
 
     <el-empty v-else-if="!loading" description="暂无评价结果">
-      <el-button @click="router.push('/training')">返回实训中心</el-button>
+      <el-button @click="router.push('/training')">返回岗位情境训练</el-button>
     </el-empty>
   </div>
 </template>

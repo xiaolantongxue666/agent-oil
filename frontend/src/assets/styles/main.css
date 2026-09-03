@@ -93,6 +93,17 @@ a { color: var(--ots-primary); text-decoration: none; }
 .el-table { --el-table-header-bg-color: #f6f9f8; --el-table-row-hover-bg-color: #f4faf8; }
 .el-drawer { --el-drawer-bg-color: #f8faf9; }
 
+/* Phase 8 §18：≤768px 侧栏 collapse 后子菜单弹层（teleported 到 body，scoped 样式覆盖不到）。
+   用限定 class（DefaultLayout el-sub-menu popper-class），不污染 Select/Tooltip/Dialog 等其他 popper。 */
+.student-menu-popper.el-popper,
+.student-menu-popper.el-popper .el-menu--popup { background: linear-gradient(180deg, #0a4b51, #0d6169); border: 1px solid rgba(255, 255, 255, 0.16); color: rgba(255, 255, 255, 0.86); }
+.student-menu-popper.el-popper .el-popper__arrow::before { background: #0a4b51; border-color: rgba(255, 255, 255, 0.16); }
+.student-menu-popper.el-popper .el-menu { background: transparent; }
+.student-menu-popper.el-popper .el-menu-item { height: 40px; color: rgba(255, 255, 255, 0.86); background: transparent; }
+.student-menu-popper.el-popper .el-menu-item:hover,
+.student-menu-popper.el-popper .el-menu-item:focus { background: rgba(255, 255, 255, 0.13); color: #fff; }
+.student-menu-popper.el-popper .el-menu-item.is-active { color: #fff; background: rgba(255, 255, 255, 0.16); box-shadow: inset 3px 0 #91dfb6; }
+
 @media (max-width: 768px) {
   .ots-page { padding: 16px 14px 24px; }
   .ots-card { padding: 16px; }

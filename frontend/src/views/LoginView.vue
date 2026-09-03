@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
@@ -16,11 +16,19 @@ const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
 }
+// §47 管理员演示凭据不再公开展示；管理员仍可手动输入账号密码登录，权限体系不变。
 const demoRoles = [
   { role: '学生', description: '体验岗位实训与能力成长', username: 'student', password: 'student123', icon: 'User', tone: 'student' },
   { role: '教师', description: '体验专业群教学与实训建设', username: 'teacher', password: 'teacher123', icon: 'Reading', tone: 'teacher' },
-  { role: '管理员', description: '体验教学智能体可信治理', username: 'admin', password: 'admin123', icon: 'Setting', tone: 'admin' },
 ]
+
+// 教师端竞赛转场会带 redirect=/simulation|/profile|/adaptive-learning：突出学生演示卡并预填账号（仍需正常登录，不自动登录）。
+const redirectTarget = computed(() => String(route.query.redirect || ''))
+const studentHandoff = computed(() => /^\/(simulation|training|profile|adaptive-learning|ability-graph|knowledge|student)\b/.test(redirectTarget.value))
+if (studentHandoff.value) {
+  form.username = 'student'
+  form.password = 'student123'
+}
 
 function selectDemoRole(item: typeof demoRoles[number]) {
   form.username = item.username
@@ -80,9 +88,12 @@ async function handleLogin() {
         </el-form>
 
         <div class="demo-area">
-          <div class="demo-title"><span>竞赛演示角色</span><small>点击自动填充体验账号</small></div>
+          <div class="demo-title">
+            <span>{{ studentHandoff ? '演示账号交接' : '竞赛演示角色' }}</span>
+            <small>{{ studentHandoff ? '即将以学生身份进入技能验证 · 点击填充后正常登录' : '点击自动填充体验账号' }}</small>
+          </div>
           <div class="role-list">
-            <button v-for="item in demoRoles" :key="item.role" type="button" :class="item.tone" @click="selectDemoRole(item)">
+            <button v-for="item in demoRoles" :key="item.role" type="button" :class="[item.tone, { spotlight: studentHandoff && item.tone === 'student' }]" @click="selectDemoRole(item)">
               <span><el-icon><component :is="item.icon" /></el-icon></span>
               <div><strong>{{ item.role }}</strong><small>{{ item.description }}</small></div>
               <el-icon class="select-arrow"><ArrowRight /></el-icon>
@@ -131,7 +142,7 @@ async function handleLogin() {
 .role-list button:hover { border-color: var(--ots-primary-light); background: #f8fbfa; }
 .role-list button > span { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: var(--ots-growth-soft); color: var(--ots-growth); }
 .role-list button.teacher > span { background: var(--ots-education-soft); color: var(--ots-education); }
-.role-list button.admin > span { background: #edf3f3; color: var(--ots-primary); }
+.role-list button.spotlight { border-color: var(--ots-growth); box-shadow: 0 0 0 3px rgba(46, 139, 99, 0.14); }
 .role-list strong,.role-list small { display: block; }
 .role-list strong { font-size: 12px; }
 .role-list small { margin-top: 2px; color: var(--ots-text-secondary); font-size: 9px; }

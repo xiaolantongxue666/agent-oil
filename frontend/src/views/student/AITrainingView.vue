@@ -66,7 +66,7 @@ onMounted(async () => {
       <div class="header-row">
         <div>
           <h2>{{ session?.task_title || '加载中...' }}</h2>
-          <p>岗位情境选择实训 · 数据库规则评分</p>
+          <p>岗位情境训练 · 数据库规则评分</p>
         </div>
         <div class="header-status">
           <el-tag :type="session?.finished ? 'success' : 'warning'" effect="dark">
@@ -97,7 +97,7 @@ onMounted(async () => {
         </div>
       </div>
       <el-button type="primary" size="large" @click="continueTraining">
-        {{ session.finished ? '查看实训结果' : '继续下一题' }}
+        {{ session.finished ? '查看训练结果' : '继续下一题' }}
       </el-button>
     </div>
 
@@ -148,7 +148,7 @@ onMounted(async () => {
 
     <div v-else-if="session?.finished" class="ots-card finished-card">
       <div class="finished-mark">✓</div>
-      <h2>本次实训已完成</h2>
+      <h2>本次训练已完成</h2>
       <p>系统已根据每道题的数据库评分规则生成成绩和能力分析。</p>
       <el-button type="primary" size="large" @click="router.push(`/training/result/${sessionId}`)">
         查看结果与错题复盘

@@ -44,8 +44,8 @@ onMounted(async () => {
 <template>
   <div class="ots-page" v-loading="loading">
     <div class="page-header">
-      <h2>岗位情境实训</h2>
-      <p class="text-secondary">选择岗位情境任务，通过选择题快速完成实训；系统按数据库评分规则生成成绩与能力分析。</p>
+      <h2>岗位情境训练</h2>
+      <p class="text-secondary">选择岗位情境任务，通过选择题完成岗位情境判断训练；系统按数据库评分规则生成成绩与能力分析。</p>
     </div>
 
     <el-empty v-if="!loading && !tasks.length" description="暂无可用训练任务" />

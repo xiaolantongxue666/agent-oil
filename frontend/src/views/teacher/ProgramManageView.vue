@@ -40,7 +40,12 @@ const evidenceForm = reactive({
 const currentVersions = computed(() => programs.value.filter((item) => item.status === 'published'))
 
 function statusText(value: string) {
-  return { published: '当前版本', archived: '历史版本', draft: '草稿', reviewed: '已审核', rejected: '已驳回' }[value] || value
+  return { published: '当前版本', archived: '历史版本', draft: '草案', reviewed: '已审核', rejected: '已驳回' }[value] || value
+}
+
+// 草案状态统一术语（系统实际状态仅有 草案/已审核/已驳回/已发布，不造「待审核」等不存在的状态）
+function proposalStatusText(value: string) {
+  return { draft: '草案', reviewed: '已审核', rejected: '已驳回', published: '已发布' }[value] || value
 }
 
 function confidenceText(value: string) {
@@ -177,8 +182,8 @@ onMounted(loadBase)
   <div v-loading="loading" class="program-page">
     <div class="page-head">
       <div>
-        <h2>产业岗位与培养方案</h2>
-        <p>岗位动态和产业证据驱动专业培养方案版本；学生成绩不进入本模块。</p>
+        <h2>培养方案与调整</h2>
+        <p>Gap 分析 → 调整草案 → 教师审核：岗位动态与产业证据驱动培养方案版本演进；学生成绩不进入本模块。</p>
       </div>
       <div class="head-actions">
         <el-select
@@ -213,7 +218,7 @@ onMounted(loadBase)
     />
 
     <el-tabs v-model="activeTab" class="main-tabs">
-      <el-tab-pane label="产业岗位洞察" name="insight">
+      <el-tab-pane label="岗位证据分析" name="insight">
         <template v-if="analysis">
           <div class="metric-grid">
             <div class="metric"><span>关联岗位</span><strong>{{ analysis.summary.position_count }}</strong></div>
@@ -324,7 +329,7 @@ onMounted(loadBase)
       <el-tab-pane label="调整草案工作台" name="proposal">
         <div class="proposal-select">
           <el-select v-model="activeProposal" value-key="id" placeholder="选择草案" style="width: 360px">
-            <el-option v-for="item in proposals" :key="item.id" :label="`${item.title} · ${statusText(item.status)}`" :value="item" />
+            <el-option v-for="item in proposals" :key="item.id" :label="`${item.title} · ${proposalStatusText(item.status)}`" :value="item" />
           </el-select>
         </div>
         <el-empty v-if="!activeProposal" description="尚无调整草案，请先从产业岗位洞察生成" />

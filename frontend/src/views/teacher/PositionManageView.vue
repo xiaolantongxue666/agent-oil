@@ -318,7 +318,7 @@ async function publish() {
 }
 
 function showGraph(positionId: number) {
-  router.push({ path: '/teacher/ability-graph', query: { position: String(positionId) } })
+  router.push({ path: '/teacher/industry', query: { tab: 'ability', position: String(positionId) } })
 }
 
 function percent(value: number) {
@@ -337,7 +337,7 @@ onBeforeUnmount(() => { pollingStopped = true })
     <div class="ots-card" v-loading="loading">
       <div class="page-header">
         <div>
-          <h2 class="ots-title">岗位图谱配置</h2>
+          <h2 class="ots-title">产业岗位洞察</h2>
           <p class="text-secondary">教师创建岗位草稿，AI寻找公开招聘证据并生成图谱，审核通过后才进入正式岗位能力图谱。</p>
         </div>
         <el-button type="primary" @click="createVisible = true">新增专业岗位</el-button>

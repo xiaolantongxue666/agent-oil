@@ -232,6 +232,65 @@ const radarAbilities = computed<AbilityItem[]>(() => {
 
 const markAction = computed(() => findAction('MARK_ABNORMAL_POINT'))
 
+// ---- 阶段关键提交（选择类 diagnose/risk_assess/decision + record）----
+// 事件类型一律读场景配置 allowed_event_types[0]（与各阶段 gate.required_event_types 一致），
+// payload 键与后端判分函数对齐：SUBMIT_* → payload.choice_code，SUBMIT_RECORD → payload.fields。
+
+/** 本阶段的关键提交事件类型（配置驱动，不按阶段名猜测） */
+const stageSubmitEvent = computed(() => stageCfg.value?.allowed_event_types?.[0] || '')
+
+/** 本阶段关键事件是否已提交（事实来源 = runtime.events，不用本地变量伪造） */
+const stageSubmittedByKey = computed(() => stageSubmitted(stageSubmitEvent.value))
+
+// 提交按钮文案（纯 UI 映射；缺失时回落到阶段标题）
+const CHOICE_SUBMIT_LABELS: Record<string, string> = {
+  diagnose: '提交诊断',
+  risk_assess: '提交风险判断',
+  decision: '提交处置方案',
+}
+const choiceSubmitLabel = computed(
+  () => CHOICE_SUBMIT_LABELS[stage.value] || stageCfg.value?.title || '提交',
+)
+
+/** 选择类阶段：提交判断事件（radio-group 只更新 choiceCode，必须经此按钮落事件） */
+async function submitChoice() {
+  if (!runtime.value || busy.value || !stageSubmitEvent.value) return
+  if (!choiceCode.value) {
+    ElMessage.warning('请先选择一个选项再提交')
+    return
+  }
+  await emit({
+    event_type: stageSubmitEvent.value,
+    target_type: 'stage',
+    target_id: stage.value,
+    payload: { choice_code: choiceCode.value },
+  })
+}
+
+// record 阶段必填校验：所有 required_fields 非空才允许提交（不自动提交，输入变化不产生事件）
+const recordRequired = computed<string[]>(() => stageCfg.value?.required_fields || [])
+const recordMissing = computed(() =>
+  recordRequired.value.filter((f) => !(recordFields[f] || '').trim()),
+)
+const recordReady = computed(
+  () => recordRequired.value.length > 0 && recordMissing.value.length === 0,
+)
+
+/** 记录阶段：提交规范记录事件 */
+async function submitRecord() {
+  if (!runtime.value || busy.value || !stageSubmitEvent.value) return
+  if (!recordReady.value) {
+    ElMessage.warning(`还有 ${recordMissing.value.length} 项必填内容未填写`)
+    return
+  }
+  await emit({
+    event_type: stageSubmitEvent.value,
+    target_type: 'stage',
+    target_id: stage.value,
+    payload: { fields: { ...recordFields } },
+  })
+}
+
 onMounted(async () => {
   try {
     scenario.value = await simulationApi.detail(code)
@@ -379,7 +438,19 @@ onMounted(async () => {
             <el-radio-group v-model="choiceCode" :disabled="stageSubmitted(stageCfg.allowed_event_types?.[0] || '')" class="option-group">
               <el-radio v-for="o in stageCfg.options" :key="o.code" :value="o.code" class="option-item">{{ o.text }}</el-radio>
             </el-radio-group>
-            <el-tag v-if="stageSubmitted(stageCfg.allowed_event_types?.[0] || '')" type="success">已提交，进入下一步</el-tag>
+            <div class="submit-row">
+              <el-button
+                type="primary"
+                :disabled="busy || !choiceCode || stageSubmittedByKey"
+                @click="submitChoice"
+              >
+                {{ choiceSubmitLabel }}
+              </el-button>
+              <span v-if="!stageSubmittedByKey" class="text-secondary tiny">
+                {{ choiceCode ? '确认后点击提交，提交前不会记录事件' : '先选择选项，再点击提交' }}
+              </span>
+              <el-tag v-else type="success" size="small">已提交，可进入下一阶段</el-tag>
+            </div>
           </div>
 
           <!-- record 阶段 -->
@@ -391,7 +462,17 @@ onMounted(async () => {
                 <el-input v-model="recordFields[f]" type="textarea" :rows="2" :placeholder="`规范填写：${(stageCfg.field_templates && stageCfg.field_templates[f]) || f}（模拟内容）`" />
               </el-form-item>
             </el-form>
-            <el-tag v-if="stageSubmitted('SUBMIT_RECORD')" type="success">记录已提交，可完成实训生成评价</el-tag>
+            <div class="submit-row">
+              <el-button
+                type="primary"
+                :disabled="busy || !recordReady || stageSubmitted('SUBMIT_RECORD')"
+                @click="submitRecord"
+              >
+                提交记录
+              </el-button>
+              <span v-if="stageSubmitted('SUBMIT_RECORD')" class="text-secondary tiny">记录已提交，可完成实训生成评价</span>
+              <span v-else-if="!recordReady" class="text-secondary tiny">还差 {{ recordMissing.length }} 项必填内容</span>
+            </div>
           </div>
 
           <!-- 完成态 -->
@@ -669,6 +750,11 @@ onMounted(async () => {
   display: flex;
   gap: 8px;
   margin-top: 10px;
+}
+.submit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .hint-box {
   margin-top: 10px;

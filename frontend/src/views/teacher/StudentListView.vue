@@ -41,7 +41,7 @@ onMounted(async () => {
 <template>
   <div class="ots-page" v-loading="loading">
     <div class="page-header">
-      <h2 style="margin: 0">学生列表</h2>
+      <h2 style="margin: 0">班级学情诊断</h2>
       <el-input
         v-model="search"
         placeholder="搜索姓名/学号..."

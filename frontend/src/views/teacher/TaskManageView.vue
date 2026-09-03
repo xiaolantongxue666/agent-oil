@@ -134,7 +134,7 @@ onMounted(loadTasks)
 <template>
   <div class="ots-page" v-loading="loading">
     <div class="page-header">
-      <h2 style="margin: 0">任务管理</h2>
+      <h2 style="margin: 0">实训任务设计</h2>
       <el-button type="primary" @click="openCreate">
         <el-icon><Plus /></el-icon>新建任务
       </el-button>
