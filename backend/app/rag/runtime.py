@@ -35,9 +35,10 @@ async def refresh_runtime_rag_config(session) -> dict[str, int]:
             else:
                 apply_reranker(values)
             loaded[category] = len(values)
-        if any(loaded.values()):
-            reset_embedding_service()
-            reset_reranker()
+        # 无条件重建单例：管理员清空全部覆盖后，旧单例仍缓存着
+        # 上一次的 backend/model，必须丢弃才能回落到 env 默认配置。
+        reset_embedding_service()
+        reset_reranker()
         logger.info("RAG 运行时配置已加载：{}", loaded)
     except Exception as exc:  # noqa: BLE001
         logger.warning("RAG 运行时配置加载失败，回退环境变量：{}", exc)

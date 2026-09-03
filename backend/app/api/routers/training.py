@@ -436,12 +436,14 @@ async def _update_ability_profile(
 ) -> None:
     """交卷后投递能力证据并更新画像（P0-1：EMA + Evidence，非累加）。
 
-    更新失败不阻断交卷，但完整记录异常堆栈（可排查、不静默）。
+    与 EvaluationResult 共用同一请求级事务（submit_choice 末尾统一 commit）：
+    证据投递失败必须抛出，让整个交卷事务回滚，
+    避免出现"EvaluationResult 已提交但 AbilityEvidence 缺失"的静默数据断链。
     """
-    try:
-        from app.services.ability_profile import AbilityProfileService
+    from app.services.ability_profile import AbilityProfileService
 
-        await AbilityProfileService().update_from_training(
+    try:
+        results = await AbilityProfileService().update_from_training(
             db=session,
             student_id=sess.student_id,
             session_id=sess.id,
@@ -450,7 +452,14 @@ async def _update_ability_profile(
             ability_scores=evaluation_data["ability_scores"],
         )
     except Exception:  # noqa: BLE001
-        logger.exception("能力画像更新失败（不影响训练完成，需排查证据链路）")
+        logger.exception("能力证据投递失败——交卷事务整体回滚（EvaluationResult 不会单独提交）")
+        raise
+    if not results:
+        # 所有目标维度都不存在于 abilities 表时 record_evidence 只记 warning 返回 None，
+        # 同样会形成"有评价无证据"断链，必须 fail-loud。
+        raise RuntimeError(
+            f"能力证据投递失败：会话 {sess.id} 未产生任何能力证据，拒绝仅提交评价结果"
+        )
 
 
 __all__ = ["router"]

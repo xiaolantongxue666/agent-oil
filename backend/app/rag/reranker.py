@@ -23,7 +23,18 @@ _RUNTIME_KEYS = ("reranker_backend", "reranker_model", "reranker_base_url", "rer
 
 
 def apply_runtime_overrides(values: dict[str, str]) -> None:
-    _RUNTIME_OVERRIDES.update({k: str(v) for k, v in values.items() if k in _RUNTIME_KEYS})
+    """全量替换运行时覆盖：治理台配置（DB）是当前事实来源。
+
+    合并语义会让管理员清空某项后，旧内存覆盖永久残留；
+    因此以本次传入的完整字典为准，空值/缺失键一律视为无覆盖。
+    """
+    new = {
+        k: str(v)
+        for k, v in values.items()
+        if k in _RUNTIME_KEYS and str(v) != ""
+    }
+    _RUNTIME_OVERRIDES.clear()
+    _RUNTIME_OVERRIDES.update(new)
 
 
 def reset_reranker() -> None:
@@ -134,7 +145,7 @@ class RerankerService:
         qwen3-rerank 使用 OpenAI 兼容的 ``/compatible-api/v1/reranks``；
         其他 DashScope Rerank 模型保留原生接口格式。
         """
-        model = self._settings.reranker_model
+        model = self._get("reranker_model")
         base_url = self._api_base_url.rstrip("/")
 
         if model == "qwen3-rerank":

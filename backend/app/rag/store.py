@@ -64,15 +64,21 @@ class QdrantStore(VectorStore):
 
     async def ensure_collection(self, dim: int) -> None:
         from qdrant_client import models
-        from qdrant_client.http.exceptions import UnexpectedResponse
 
         try:
-            await self._client.get_collection(self._collection)
-        except (UnexpectedResponse, Exception):  # noqa: BLE001
-            await self._client.recreate_collection(
-                collection_name=self._collection,
-                vectors_config=models.VectorParams(size=dim, distance=models.Distance.COSINE),
-            )
+            exists = await self._client.collection_exists(self._collection)
+        except Exception as exc:  # noqa: BLE001
+            # 无法确认 collection 状态（网络失败/认证失败/超时/服务临时不可用等）。
+            # 绝不能当作"不存在"触发破坏性重建——记安全日志后原样抛出。
+            logger.error("Qdrant 检查集合存在性失败，跳过任何重建：{}", exc)
+            raise
+        if exists:
+            return
+        # 仅当确认 collection 不存在时才创建（与原 recreate 在缺失场景下的创建逻辑等价）
+        await self._client.create_collection(
+            collection_name=self._collection,
+            vectors_config=models.VectorParams(size=dim, distance=models.Distance.COSINE),
+        )
 
     async def upsert(self, points: list[dict[str, Any]]) -> int:
         from qdrant_client import models

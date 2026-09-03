@@ -462,3 +462,135 @@ def test_remove_repeated_lines_strips_headers_footers():
     assert "第一章 正文甲" in cleaned[0]
     # 少于 3 页时不处理
     assert _remove_repeated_lines(["甲", "甲"]) == ["甲", "甲"]
+
+
+# ---------- Qdrant ensure_collection 安全（数据阶段前稳定性修复） ----------
+class _FakeQdrantClient:
+    """最小 AsyncQdrantClient 替身：只记录调用，不产生任何网络 IO。"""
+
+    def __init__(self, *, exists=False, probe_error=None):
+        self._exists = exists
+        self._probe_error = probe_error
+        self.create_calls: list = []
+        self.recreate_called = False
+
+    async def collection_exists(self, name):
+        if self._probe_error is not None:
+            raise self._probe_error
+        return self._exists
+
+    async def create_collection(self, collection_name, vectors_config=None, **kwargs):
+        self.create_calls.append((collection_name, vectors_config))
+
+    async def recreate_collection(self, collection_name, vectors_config=None, **kwargs):
+        self.recreate_called = True
+
+
+def _qdrant_store_with(fake: _FakeQdrantClient):
+    from app.rag.store import QdrantStore
+
+    store = QdrantStore()
+    store._client = fake  # 替换客户端，避免真实连接
+    return store
+
+
+async def test_ensure_collection_creates_only_when_missing():
+    """场景 A：确认 collection 不存在 → 正常创建，不使用破坏性 recreate。"""
+    fake = _FakeQdrantClient(exists=False)
+    await _qdrant_store_with(fake).ensure_collection(8)
+    assert len(fake.create_calls) == 1
+    assert fake.create_calls[0][0]  # collection 名
+    assert fake.recreate_called is False
+
+
+async def test_ensure_collection_keeps_existing_collection():
+    fake = _FakeQdrantClient(exists=True)
+    await _qdrant_store_with(fake).ensure_collection(8)
+    assert fake.create_calls == []
+    assert fake.recreate_called is False
+
+
+async def test_ensure_collection_network_error_never_recreates():
+    """场景 B：网络/认证/超时等普通异常 → 原样抛出，绝不触碰 collection。"""
+    fake = _FakeQdrantClient(probe_error=ConnectionError("qdrant unreachable"))
+    with pytest.raises(ConnectionError):
+        await _qdrant_store_with(fake).ensure_collection(8)
+    assert fake.create_calls == []
+    assert fake.recreate_called is False
+
+
+# ---------- RAG runtime 配置一致性（override → 清空 → 回落） ----------
+async def test_refresh_runtime_applies_and_clears_overrides():
+    """场景 A/B/C：无 override 用默认；设置 override 生效；清空后不残留且单例重建。"""
+    from app.core.config import get_settings
+    from app.rag import embedding as emb_mod
+    from app.rag import reranker as rr_mod
+    from app.rag.runtime import _SERVICE_CATEGORIES, refresh_runtime_rag_config
+
+    class _Rows:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def all(self):
+            return self._rows
+
+    class _FakeSession:
+        """按 _SERVICE_CATEGORIES 遍历顺序返回各 category 的 SystemSetting 行。"""
+
+        def __init__(self, by_category):
+            self.by_category = by_category
+            self._i = 0
+
+        async def scalars(self, stmt):
+            category = _SERVICE_CATEGORIES[self._i]
+            self._i += 1
+            return _Rows(
+                [SimpleNamespace(key=k, value=v) for k, v in self.by_category[category].items()]
+            )
+
+    try:
+        # 场景 B：DB 中设置 reranker_model override → 生效 + 单例被重建
+        rr_mod.get_reranker()
+        await refresh_runtime_rag_config(
+            _FakeSession({"embedding": {}, "reranker": {"reranker_model": "model-X"}})
+        )
+        assert rr_mod._RUNTIME_OVERRIDES.get("reranker_model") == "model-X"
+        assert rr_mod._reranker is None
+        assert rr_mod.RerankerService()._get("reranker_model") == "model-X"
+
+        # 场景 C：DB 清空 override → 内存覆盖同步清除（不残留旧值）+ 单例再次重建
+        rr_mod.get_reranker()
+        await refresh_runtime_rag_config(
+            _FakeSession({"embedding": {}, "reranker": {"reranker_model": ""}})
+        )
+        assert "reranker_model" not in rr_mod._RUNTIME_OVERRIDES
+        assert rr_mod._reranker is None
+        # 场景 A：回落静态 settings（默认环境变量配置）
+        assert rr_mod.RerankerService()._get("reranker_model") == get_settings().reranker_model
+    finally:
+        rr_mod.apply_runtime_overrides({})
+        emb_mod.apply_runtime_overrides({})
+        rr_mod.reset_reranker()
+        emb_mod.reset_embedding_service()
+
+
+def test_reranker_api_request_uses_runtime_override_model():
+    """实际请求模型名必须走运行时生效配置，而非绕过 override 读静态 settings。"""
+    from app.rag import reranker as rr_mod
+
+    try:
+        rr_mod.apply_runtime_overrides(
+            {
+                "reranker_backend": "api",
+                "reranker_api_key": "test-key",
+                "reranker_model": "custom-rerank-v1",
+                "reranker_base_url": "https://example.test/api/v1",
+            }
+        )
+        rr = rr_mod.RerankerService()
+        assert rr.backend == "api"
+        url, payload = rr._build_api_request("安全操作", ["风险辨识"])
+        assert payload["model"] == "custom-rerank-v1"
+        assert url.startswith("https://example.test")
+    finally:
+        rr_mod.apply_runtime_overrides({})
