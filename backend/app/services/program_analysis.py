@@ -217,12 +217,13 @@ class ProgramAnalysisService:
                     )
                 )
             ).scalars().all()
-        # 跨采集批次按原始网页去重，避免重复抓取放大岗位需求。
-        unique_snapshots: dict[str, JobPostingSnapshot] = {}
+        # 跨采集批次按 (原始网页, 岗位) 去重：同 URL 同岗位计一次；同 URL 不同岗位各计一条独立证据。
+        unique_snapshots: dict[tuple[str, int], JobPostingSnapshot] = {}
         for item in snapshots:
-            previous = unique_snapshots.get(item.source_url_hash)
+            key = (item.source_url_hash, item.position_id)
+            previous = unique_snapshots.get(key)
             if previous is None or item.observed_at > previous.observed_at:
-                unique_snapshots[item.source_url_hash] = item
+                unique_snapshots[key] = item
         snapshots = list(unique_snapshots.values())
 
         snapshot_counts = Counter(item.position_id for item in snapshots)
@@ -245,9 +246,10 @@ class ProgramAnalysisService:
 
         demand_raw: defaultdict[str, float] = defaultdict(float)
         for relation, ability in relations:
-            # 至少赋 1 个证据单位，使已发布但暂缺招聘样本的岗位图谱仍进入结构分析。
-            demand_raw[ability.key] += max(1, snapshot_counts.get(relation.position_id, 0)) * relation.weight
-        if not demand_raw:
+            # 产业需求只由真实有效招聘样本驱动：0 样本岗位贡献 0；无样本岗位仍出现在 positions[].sample_count。
+            demand_raw[ability.key] += snapshot_counts.get(relation.position_id, 0) * relation.weight
+        if not relations:
+            # 完全没有岗位-能力关系时的兜底；“有关系但样本全为 0”不走此兜底——那正是证据缺失的诚实呈现。
             for ability in abilities:
                 demand_raw[ability.key] = ability.weight or 1.0
         demand_total = sum(demand_raw.values()) or 1.0

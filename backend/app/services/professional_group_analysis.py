@@ -189,7 +189,7 @@ class ProfessionalGroupAnalysisService:
         major_by_name = {m.name: m for m in majors}
         major_name_by_id = {m.id: m.name for m in majors}
 
-        # ---- 产业需求侧：招聘快照（date_confidence 过滤 + 跨批次 URL 去重，同 program 级口径） ----
+        # ---- 产业需求侧：招聘快照（date_confidence 过滤 + 跨批次按 (网页,岗位) 去重，同 program 级口径） ----
         snapshots: list[JobPostingSnapshot] = []
         if position_ids:
             snapshots = list(
@@ -204,11 +204,13 @@ class ProfessionalGroupAnalysisService:
                     )
                 ).scalars().all()
             )
-        unique_snapshots: dict[str, JobPostingSnapshot] = {}
+        # 需求样本业务身份 = (网页, 岗位)：同 URL 同岗位计一次；同 URL 不同岗位各计一条独立证据。
+        unique_snapshots: dict[tuple[str, int], JobPostingSnapshot] = {}
         for item in snapshots:
-            previous = unique_snapshots.get(item.source_url_hash)
+            key = (item.source_url_hash, item.position_id)
+            previous = unique_snapshots.get(key)
             if previous is None or item.observed_at > previous.observed_at:
-                unique_snapshots[item.source_url_hash] = item
+                unique_snapshots[key] = item
         snapshots = list(unique_snapshots.values())
         snapshot_counts = Counter(item.position_id for item in snapshots)
         skills = Counter(
@@ -239,13 +241,15 @@ class ProfessionalGroupAnalysisService:
                 major_by_name[position.major].id if position.major in major_by_name else None
             )
         for relation, ability in relations:
-            weight_unit = max(1, snapshot_counts.get(relation.position_id, 0)) * relation.weight
+            # 产业需求只由真实有效招聘样本驱动：0 样本岗位贡献 0；无样本岗位仍出现在 position_rows[].sample_count。
+            weight_unit = snapshot_counts.get(relation.position_id, 0) * relation.weight
             demand_raw[ability.key] += weight_unit
             owner_major = position_major_id.get(relation.position_id)
             if owner_major is not None:
                 major_demand_raw[owner_major][ability.key] += weight_unit
-        if not demand_raw:
-            # 完全没有岗位-能力关系时的兜底：保持结构可分析（与 program 级一致）
+        if not relations:
+            # 完全没有岗位-能力关系时的兜底：保持结构可分析（与 program 级一致）；
+            # 注意“有关系但样本全为 0”不走此兜底——那正是证据缺失的诚实呈现。
             for key in ability_names:
                 demand_raw[key] = 1.0
         demand_total = sum(demand_raw.values()) or 1.0
