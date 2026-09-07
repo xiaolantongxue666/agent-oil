@@ -8,7 +8,7 @@ services:
     ports: !reset []
 
   backend:
-    image: agent-oil-backend:v2
+    image: agent-oil-backend:v5
     build: !reset null
     mem_limit: 512m
     ports: !reset []
@@ -16,7 +16,7 @@ services:
       - uploads-data:/app/uploads
 
   frontend:
-    image: agent-oil-frontend:v2
+    image: agent-oil-frontend:v4
     build: !reset null
     mem_limit: 48m
 
@@ -24,6 +24,9 @@ services:
     mem_limit: 48m
     ports: !override
       - "80:80"
+      - "443:443"
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
 
 volumes:
   uploads-data:

@@ -266,11 +266,17 @@ class RAGPipeline:
         *,
         filters: dict[str, Any] | None = None,
         top_k: int | None = None,
+        auto_sync: bool = True,
     ) -> list[dict[str, Any]]:
-        """向量检索，返回原始 hits。"""
+        """向量检索，返回原始 hits。
+
+        auto_sync=False 时跳过 ensure_indexed_from_db 的自动补索引与数据库提交，
+        供维护脚本的只读验收探针使用；业务检索默认 True，行为不变。
+        """
         await self.ensure_ready()
         # 每个 Pipeline 实例首次检索时，从 DB 补齐新增或变更知识。
-        await self.ensure_indexed_from_db()
+        if auto_sync:
+            await self.ensure_indexed_from_db()
         k = top_k or self._settings.rag_retrieve_top_k
         qv = await self._embedding.embed_query(query)
         return await self._store.search(qv, top_k=k, filters=filters)
@@ -281,12 +287,13 @@ class RAGPipeline:
         *,
         filters: dict[str, Any] | None = None,
         top_k: int | None = None,
+        auto_sync: bool = True,
     ) -> list[RetrievedDoc]:
         """检索 + 重排，返回 RetrievedDoc 列表（按 rerank_score 降序）。"""
         await self.ensure_ready()
         retrieve_k = self._settings.rag_retrieve_top_k
         rerank_k = top_k or self._settings.rag_rerank_top_k
-        hits = await self.retrieve(query, filters=filters, top_k=retrieve_k)
+        hits = await self.retrieve(query, filters=filters, top_k=retrieve_k, auto_sync=auto_sync)
         if not hits:
             return []
         # 合并同 knowledge_id 的分块文本，避免重复引用

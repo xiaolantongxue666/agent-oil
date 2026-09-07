@@ -2,6 +2,7 @@
 .idea
 .vscode
 .env
+backend/.env
 deploy.env
 agent-oil-images-*.tar
 agent-oil-app-*.tar
@@ -12,6 +13,8 @@ frontend/node_modules
 frontend/dist
 **/__pycache__
 **/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
 *.db
 *.log
 tmp

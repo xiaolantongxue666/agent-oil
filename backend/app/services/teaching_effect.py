@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import Integer, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.admin import AdminAuditLog
@@ -65,7 +65,10 @@ class TeachingEffectService:
         # 已发布 AI 批次（按题目判定：batch 内任一 AI 题且状态 published）
         rows = (
             await db.execute(
-                select(TrainingQuestion.batch_code, func.max(TrainingQuestion.generated_by_ai))
+                select(
+                    TrainingQuestion.batch_code,
+                    func.max(cast(TrainingQuestion.generated_by_ai, Integer)),
+                )
                 .where(TrainingQuestion.batch_code != "seed")
                 .group_by(TrainingQuestion.batch_code)
             )

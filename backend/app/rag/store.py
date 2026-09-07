@@ -40,6 +40,10 @@ class VectorStore(ABC):
     @abstractmethod
     async def count(self) -> int: ...
 
+    async def collection_exists(self) -> bool:
+        """只读检查集合是否存在；不创建、不修改。"""
+        ...
+
     @abstractmethod
     async def delete_by_filter(self, filters: dict[str, Any]) -> None: ...
 
@@ -79,6 +83,14 @@ class QdrantStore(VectorStore):
             collection_name=self._collection,
             vectors_config=models.VectorParams(size=dim, distance=models.Distance.COSINE),
         )
+
+    async def collection_exists(self) -> bool:
+        """只读检查集合是否存在；任何失败原样抛出，绝不创建集合。"""
+        try:
+            return await self._client.collection_exists(self._collection)
+        except Exception:
+            logger.error("Qdrant 只读检查集合存在性失败：", exc_info=True)
+            raise
 
     async def upsert(self, points: list[dict[str, Any]]) -> int:
         from qdrant_client import models
@@ -220,6 +232,10 @@ class InMemoryStore(VectorStore):
 
     async def count(self) -> int:
         return len(self._points)
+
+    async def collection_exists(self) -> bool:
+        # 内存存储无独立集合概念：实例存在即视为存在（点可能为空，由调用方判定）
+        return True
 
     async def delete_by_filter(self, filters: dict[str, Any]) -> None:
         if filters:
