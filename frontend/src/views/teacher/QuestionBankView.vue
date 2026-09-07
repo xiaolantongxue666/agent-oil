@@ -236,7 +236,7 @@ onMounted(() => loadBank())
           <summary>本任务生成时可引用的权威依据</summary>
           <div v-for="item in bank.evidence_citations" :key="item.knowledge_id" class="evidence-item">
             <strong>{{ item.title }}</strong>
-            <span>{{ item.source_no }} · {{ item.chapter }} · PDF 第 {{ item.page }} 页</span>
+            <span>{{ item.source_no }} · {{ item.chapter }}<template v-if="item.page"> · PDF 第 {{ item.page }} 页</template></span>
           </div>
         </details>
       </el-col>

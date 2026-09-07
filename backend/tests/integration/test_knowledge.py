@@ -19,7 +19,10 @@ async def test_knowledge_library_has_50_plus_traceable_authority_items(client, s
     for item in authority_items:
         assert item["safety_level"] == "权威来源教学摘要"
         assert item["source_no"]
-        assert item["page"] is not None
+        # 页码契约：法律（HTML全文）条目允许无页码，但必须保留条款定位；
+        # 其余 PDF 类条目必须有真实页码。
+        if item["page"] is None:
+            assert item["source_type"] == "law"
         assert item["chapter"]
 
     stats_response = await client.get("/api/knowledge/stats", headers=student_token)

@@ -43,7 +43,14 @@ def load_authoritative_knowledge(path: Path = CATALOG_PATH) -> list[dict[str, An
         if not source or not source.get("source_no") or not source.get("source_url"):
             raise ValueError(f"{knowledge_id} 的来源不可追溯")
         page = item.get("page")
-        if not isinstance(page, int) or page < 1:
+        if page is None:
+            # 无 PDF 依据的来源（如 HTML 法律全文）允许不填页码，
+            # 但必须是法律来源且有条款级 chapter 定位，绝不以条目序号充数。
+            if source.get("source_type") != "law" or not str(item.get("chapter", "")).strip():
+                raise ValueError(
+                    f"{knowledge_id} 缺少页码时必须是法律来源（source_type=law）且含条款定位"
+                )
+        elif not isinstance(page, int) or page < 1:
             raise ValueError(f"{knowledge_id} 的 PDF 页码无效")
 
         expanded.append(
