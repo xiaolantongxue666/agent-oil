@@ -216,7 +216,6 @@ agent-oil/
 │   ├── alembic/versions/  # 含 20260901_01 能力证据、20260901_02 仿真实训、20260902_01 专业群
 │   └── tests/           # 362 个测试（unit + integration）
 ├── data/                # 知识/标准/教材/案例数据
-├── docs/                # 架构文档 + phase0~7 阶段报告
 ├── docker/ docker-compose.yml .env.example
 └── README.md
 ```
@@ -328,7 +327,6 @@ npm run type-check && npm run build
   仿真实训场景强制携带 `teaching_simulation` 标志与免责声明，前端三处常驻声明。
 - 岗位/任务映射为基于职业标准的教学化表达，不构成真实操作规程。
 - API Key 仅存后端环境变量，不进 Git、不发给前端、不写日志。
-- 详见 [docs/safety.md](docs/safety.md)。
 
 ## 九、测试
 
@@ -360,10 +358,7 @@ npm run build
 
 ## 十一、与既有文档
 
-- 架构详情：[docs/architecture.md](docs/architecture.md)
-- API 说明：[docs/api.md](docs/api.md) 与 `/api/docs`
-- 安全设计：[docs/safety.md](docs/safety.md)
-- 阶段改造报告（Phase 0~7 与逐条检验）：[docs/phase0_audit_report.md](docs/phase0_audit_report.md) 起
+- API 说明：运行后访问 `/api/docs`（OpenAPI 交互文档）
 
 ## 十二、项目扩展方向
 

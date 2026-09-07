@@ -119,12 +119,6 @@ frontend/start_dev.bat
 backend/dev.db.bak-*
 .docgen/
 .video_build/
-docs/glm/
-docs/*.pptx
-docs/*.docx
-docs/*.7z
-docs/*.png
-docs/frontend_competition/
 
 # ===== 数据工作区(整体不入库, 2026-09-06 收敛) =====
 work/
@@ -132,3 +126,6 @@ work/
 # ===== AI 助手本地配置(不入库, 2026-09-07) =====
 AGENTS.md
 CLAUDE.md
+
+# ===== docs 整体不入库(2026-09-07, 历史文档已从仓库移除) =====
+docs/
