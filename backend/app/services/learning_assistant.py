@@ -479,13 +479,12 @@ class LearningAssistantService:
         if path.get("next_step"):
             step = path["next_step"]
             result.cards.append({"type": step.get("step_type", "learning_step"), "title": step.get("title", "下一学习步骤"), "route": step.get("route", "/adaptive-learning")})
-            if not str(step.get("route", "")).startswith("/training/"):
+            # R045：可执行活动步骤含选择题与仿真两类既有路由
+            def _is_activity_route(item: dict[str, Any]) -> bool:
+                return str(item.get("route", "")).startswith(("/training/", "/simulation/"))
+            if not _is_activity_route(step):
                 practice = next(
-                    (
-                        item
-                        for item in path.get("learning_path", [])
-                        if str(item.get("route", "")).startswith("/training/")
-                    ),
+                    (item for item in path.get("learning_path", []) if _is_activity_route(item)),
                     None,
                 )
                 if practice:
@@ -534,7 +533,12 @@ class LearningAssistantService:
                 }
             )
         for item in items[:3]:
-            route = f"/training/{item.task_code}"
+            # R045：仿真任务使用既有 /simulation/{scenario_code} 路由，禁止误入选择题页
+            scenario_code = str(getattr(item, "scenario_code", "") or "")
+            if getattr(item, "activity_type", "choice") == "simulation" and scenario_code:
+                route = f"/simulation/{scenario_code}"
+            else:
+                route = f"/training/{item.task_code}"
             retry = item.reason_code == "retry"
             result.cards.append(
                 {

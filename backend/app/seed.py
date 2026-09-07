@@ -566,12 +566,19 @@ async def _seed_positions(
                 )
             ).all()
         }
+        # 正式图谱保护：岗位已存在任意典型任务（含教师/AI工作流建立的任务）时，
+        # 不再注入该岗位的蓝图默认任务，避免初始化扩展或覆盖既有图谱；
+        # 全新岗位（无任何任务）仍写入完整蓝图，保证新库初始化完整。
+        # 判断依据是"岗位已有任务"这一图谱事实，而非任务编码前缀。
+        has_formal_graph = bool(existing_tasks)
         task_ids: dict[str, int] = {}
         for sort_order, (code, name, description, _weights) in enumerate(
             blueprint["tasks"], start=1
         ):
             task = existing_tasks.get(code)
             if task is None:
+                if has_formal_graph:
+                    continue
                 task = JobTask(
                     position_id=position.id,
                     code=code,
@@ -758,11 +765,14 @@ async def _seed_graph_relations(
                     ability_id=ability_id,
                     weight=weight,
                 ))
-            else:
-                relation.weight = weight
+            # 已有权重不覆盖：岗位能力权重属教师/业务数据，初始化只补缺，不改正。
 
         task_ids = task_ids_by_position[blueprint["code"]]
         for task_code, _name, _description, weights in blueprint["tasks"]:
+            if task_code not in task_ids:
+                # 正式图谱保护下该岗位未注入蓝图任务（见 _seed_positions），
+                # 其任务级权重关系同样不创建。
+                continue
             for ability_key, weight in weights.items():
                 relation_key = (task_ids[task_code], ability_ids[ability_key.value])
                 relation = task_relations.get(relation_key)
@@ -772,12 +782,16 @@ async def _seed_graph_relations(
                         ability_id=relation_key[1],
                         weight=weight,
                     ))
-                else:
-                    relation.weight = weight
+                # 已有任务能力权重同理只补缺，不覆盖。
 
+    # 技能点自动生成仅面向种子编码体系（K-前缀，K-→S- 派生）；
+    # 其他来源的知识点（如 AI 工作流创建的岗位图谱）编码不含"K-"中缀，
+    # 派生码会与知识点同码，误建冗余技能点，故显式跳过。
     knowledge_points = (await session.scalars(select(KnowledgePoint))).all()
     skills = {s.code: s for s in (await session.scalars(select(SkillPoint))).all()}
     for point in knowledge_points:
+        if "K-" not in point.code:
+            continue
         code = point.code.replace("K-", "S-", 1)
         skill = skills.get(code)
         name = SKILL_POINT_NAMES.get(point.code, f"应用{point.name}")

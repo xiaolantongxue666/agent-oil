@@ -1,0 +1,447 @@
+{
+  "schema_version": 1,
+  "scenario_code": "HSE_RECORD_PREVIEW_003",
+  "task_code": "SIM-HSE-PREVIEW-003",
+  "title": "HSE风险辨识与规范记录教学仿真实训（候选）",
+  "teaching_simulation": true,
+  "disclaimer": "教学数据预览：全部对象、时间、数值、异常原因和评分选项均为合成教学设定，尚待教师审核；不代表真实工况、法定阈值或行业需求排名，不连接设备，不执行任何真实操作。",
+  "position_title": "站场运行岗位（教学模拟；正式岗位映射见预览元数据）",
+  "description": "模拟站场第18分钟产生风险提示，远程状态卡显示某隔离区域标识待核查。第20分钟学员尚未获处置授权。任务是辨识信息缺口、选择汇报方案，并区分已观察、待确认和未执行事项。",
+  "difficulty": 3,
+  "estimated_minutes": 20,
+  "target_abilities": [
+    "process_understanding",
+    "equipment_recognition",
+    "instrument_parameter",
+    "abnormal_detection",
+    "safety_awareness",
+    "standard_recording"
+  ],
+  "briefing": {
+    "situation": "模拟站场第18分钟产生风险提示，远程状态卡显示某隔离区域标识待核查。第20分钟学员尚未获处置授权。任务是辨识信息缺口、选择汇报方案，并区分已观察、待确认和未执行事项。",
+    "objectives": [
+      "核对模拟流程与对象",
+      "比较趋势与设备状态",
+      "提交判断、风险及教学方案",
+      "留下可复核的模拟记录"
+    ],
+    "safety_notes": [
+      "全部内容仅用于教学讨论",
+      "选项不构成实际生产处置指令",
+      "未知信息标明待确认，不代填实际操作事实"
+    ]
+  },
+  "monitor": {
+    "time_label": "仿真时间（分钟）",
+    "series": [
+      {
+        "id": "risk_indicator",
+        "label": "风险提示教学指标",
+        "unit": "教学相对值（非浓度/法定限值）",
+        "points": [
+          [
+            0,
+            1
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            10,
+            1
+          ],
+          [
+            15,
+            1
+          ],
+          [
+            18,
+            3
+          ],
+          [
+            20,
+            3
+          ],
+          [
+            25,
+            3
+          ],
+          [
+            30,
+            3
+          ]
+        ]
+      }
+    ],
+    "devices": [
+      {
+        "id": "hse-area-card",
+        "name": "区域状态卡（模拟）",
+        "status": "提示已出现；具体原因待确认",
+        "metrics": {
+          "观察方式": "教学状态卡",
+          "处置状态": "未执行现场操作"
+        }
+      },
+      {
+        "id": "hse-isolation-card",
+        "name": "隔离与授权状态卡（模拟）",
+        "status": "标识待核查；尚未授权",
+        "metrics": {
+          "信息完整性": "不足",
+          "学生权限": "观察、记录、报告"
+        }
+      }
+    ],
+    "history": {
+      "text": "第18分钟出现模拟风险提示；第20分钟尚无现场处置授权，也没有已完成检修、隔离或报警复归的证据。文字流程：监控提示→核对信息→向值班负责人汇报→等待授权。",
+      "last_normal_range": {
+        "risk_indicator": [
+          1,
+          1
+        ]
+      }
+    },
+    "alarms": [
+      {
+        "time_min": 18,
+        "level": "教学风险提示",
+        "code": "DEMO-HSE-18",
+        "text": "风险提示与区域标识待核查；不能据此宣称已发生事故"
+      }
+    ],
+    "knowledge_docs": [
+      {
+        "id": "c-record-note",
+        "title": "记录事实与不确定性（教学模板）",
+        "summary": "记录观察时间、对象、数据和来源；区分待核查事项与已执行事项。只记录实际完成的汇报，不预写处置结果。"
+      }
+    ]
+  },
+  "stages": {
+    "observe": {
+      "title": "HSE信息收集",
+      "goal": "查看授权与区域状态、风险提示及记录说明，标记提示出现区间。",
+      "allowed_event_types": [
+        "VIEW_PROCESS_FLOW",
+        "OPEN_KNOWLEDGE",
+        "VIEW_DEVICE_STATUS",
+        "VIEW_TREND",
+        "VIEW_ALARM",
+        "MARK_ABNORMAL_POINT"
+      ],
+      "actions": [
+        {
+          "code": "C-FLOW",
+          "event_type": "VIEW_PROCESS_FLOW",
+          "target_type": "diagram",
+          "target_id": "c-report-flow",
+          "name": "核对文字汇报流程",
+          "ability_key": "process_understanding",
+          "points": 5,
+          "critical": true
+        },
+        {
+          "code": "C-NOTE",
+          "event_type": "OPEN_KNOWLEDGE",
+          "target_type": "knowledge_doc",
+          "target_id": "c-record-note",
+          "name": "阅读记录与汇报说明",
+          "ability_key": "process_understanding",
+          "points": 5,
+          "critical": true
+        },
+        {
+          "code": "C-AREA",
+          "event_type": "VIEW_DEVICE_STATUS",
+          "target_type": "device",
+          "target_id": "hse-area-card",
+          "name": "核对区域状态卡",
+          "ability_key": "equipment_recognition",
+          "points": 5,
+          "critical": true
+        },
+        {
+          "code": "C-ISOLATION",
+          "event_type": "VIEW_DEVICE_STATUS",
+          "target_type": "device",
+          "target_id": "hse-isolation-card",
+          "name": "核对隔离授权状态卡",
+          "ability_key": "equipment_recognition",
+          "points": 5,
+          "critical": true
+        },
+        {
+          "code": "C-TREND",
+          "event_type": "VIEW_TREND",
+          "target_type": "trend",
+          "target_id": "risk_indicator",
+          "name": "读取风险教学指标",
+          "ability_key": "instrument_parameter",
+          "points": 10,
+          "critical": true
+        },
+        {
+          "code": "C-ALARM",
+          "event_type": "VIEW_ALARM",
+          "target_type": "alarm_panel",
+          "target_id": "c-alarm",
+          "name": "核对提示时刻",
+          "ability_key": "abnormal_detection",
+          "points": 4,
+          "critical": true
+        },
+        {
+          "code": "C-MARK",
+          "event_type": "MARK_ABNORMAL_POINT",
+          "target_type": "trend",
+          "target_id": "risk_indicator",
+          "name": "标记提示出现区间",
+          "ability_key": "abnormal_detection",
+          "points": 6,
+          "critical": true,
+          "answer": {
+            "target_id": "risk_indicator",
+            "window_min": 18,
+            "window_max": 20
+          }
+        }
+      ],
+      "gate": {
+        "min_events": 5,
+        "required_event_types": [
+          "VIEW_DEVICE_STATUS",
+          "VIEW_TREND",
+          "VIEW_ALARM",
+          "MARK_ABNORMAL_POINT"
+        ]
+      },
+      "hint_templates": [
+        "注意观察到的事实与尚未发生的操作之间的区别。"
+      ]
+    },
+    "diagnose": {
+      "title": "记录内容辨误",
+      "goal": "哪条记录最符合第20分钟已知事实？",
+      "allowed_event_types": [
+        "SUBMIT_DIAGNOSIS"
+      ],
+      "question": "哪条记录最符合第20分钟已知事实？",
+      "event_code": "C-RECORD-JUDGMENT",
+      "ability_key": "standard_recording",
+      "actions": [
+        {
+          "code": "C-RECORD-JUDGMENT",
+          "name": "记录内容辨误",
+          "ability_key": "standard_recording",
+          "points": 15,
+          "critical": true
+        }
+      ],
+      "options": [
+        {
+          "code": "C-RECORD-JUDGMENT-O1",
+          "text": "第18分钟出现风险提示，区域标识待核查，第20分钟尚未获处置授权；下一步拟向负责人报告",
+          "score": 15,
+          "correct": true
+        },
+        {
+          "code": "C-RECORD-JUDGMENT-O2",
+          "text": "第20分钟已完成检修并确认无风险",
+          "score": 0,
+          "error_type": "wrong_cause"
+        },
+        {
+          "code": "C-RECORD-JUDGMENT-O3",
+          "text": "第18分钟发生重大事故且原因已经查明",
+          "score": 0,
+          "error_type": "wrong_cause"
+        },
+        {
+          "code": "C-RECORD-JUDGMENT-O4",
+          "text": "已隔离、已复归、已报告，具体时间和对象不必记录",
+          "score": 0,
+          "error_type": "wrong_cause"
+        }
+      ],
+      "gate": {
+        "min_events": 1,
+        "required_event_types": [
+          "SUBMIT_DIAGNOSIS"
+        ]
+      },
+      "hint_templates": [
+        "结合模拟面板的时间、对象与状态作判断；不要把未确认情况写成已执行事实。"
+      ]
+    },
+    "risk_assess": {
+      "title": "HSE风险辨识",
+      "goal": "当前需要识别的教学风险是什么？",
+      "allowed_event_types": [
+        "SUBMIT_RISK_ASSESSMENT"
+      ],
+      "question": "当前需要识别的教学风险是什么？",
+      "event_code": "C-RISK",
+      "ability_key": "safety_awareness",
+      "actions": [
+        {
+          "code": "C-RISK",
+          "name": "HSE风险辨识",
+          "ability_key": "safety_awareness",
+          "points": 15,
+          "critical": true
+        }
+      ],
+      "options": [
+        {
+          "code": "C-RISK-O1",
+          "text": "信息和授权未闭合，盲目进入或自行操作可能扩大风险，应先报告并核查",
+          "score": 15,
+          "correct": true
+        },
+        {
+          "code": "C-RISK-O2",
+          "text": "教学面板可以直接给出真实现场法定限值",
+          "score": 0,
+          "error_type": "risk_ignored"
+        },
+        {
+          "code": "C-RISK-O3",
+          "text": "尚未确认事故，所以不需关注提示",
+          "score": 0,
+          "error_type": "risk_ignored"
+        },
+        {
+          "code": "C-RISK-O4",
+          "text": "记录里写已处置即可消除现场风险",
+          "score": 0,
+          "error_type": "risk_ignored"
+        }
+      ],
+      "gate": {
+        "min_events": 1,
+        "required_event_types": [
+          "SUBMIT_RISK_ASSESSMENT"
+        ]
+      },
+      "hint_templates": [
+        "结合模拟面板的时间、对象与状态作判断；不要把未确认情况写成已执行事实。"
+      ]
+    },
+    "decision": {
+      "title": "权限与汇报决策",
+      "goal": "哪项教学方案与当前权限一致？",
+      "allowed_event_types": [
+        "SUBMIT_DECISION"
+      ],
+      "question": "哪项教学方案与当前权限一致？",
+      "event_code": "C-DECISION",
+      "ability_key": "safety_awareness",
+      "actions": [
+        {
+          "code": "C-DECISION",
+          "name": "权限与汇报决策",
+          "ability_key": "safety_awareness",
+          "points": 15,
+          "critical": true
+        }
+      ],
+      "options": [
+        {
+          "code": "C-DECISION-O1",
+          "text": "保留观察数据，向负责人说明未确认事项与授权状态，等待经授权的后续安排",
+          "score": 15,
+          "correct": true
+        },
+        {
+          "code": "C-DECISION-O2",
+          "text": "自行执行未授权操作，再补写审批记录",
+          "score": 0,
+          "error_type": "unsafe_decision"
+        },
+        {
+          "code": "C-DECISION-O3",
+          "text": "把报警提示改写成已排除",
+          "score": 0,
+          "error_type": "unsafe_decision"
+        },
+        {
+          "code": "C-DECISION-O4",
+          "text": "跳过汇报，只填已完成处置",
+          "score": 0,
+          "error_type": "unsafe_decision"
+        }
+      ],
+      "gate": {
+        "min_events": 1,
+        "required_event_types": [
+          "SUBMIT_DECISION"
+        ]
+      },
+      "hint_templates": [
+        "结合模拟面板的时间、对象与状态作判断；不要把未确认情况写成已执行事实。"
+      ]
+    },
+    "record": {
+      "title": "填写规范记录",
+      "goal": "按模板完整填写一条规范运行记录。",
+      "allowed_event_types": [
+        "SUBMIT_RECORD"
+      ],
+      "event_code": "C-RECORD",
+      "ability_key": "standard_recording",
+      "actions": [
+        {
+          "code": "C-RECORD",
+          "name": "提交规范记录",
+          "ability_key": "standard_recording",
+          "points": 15,
+          "critical": true
+        }
+      ],
+      "required_fields": [
+        "time_phenomenon",
+        "observed_data",
+        "preliminary_cause",
+        "actions_taken",
+        "recorder"
+      ],
+      "field_templates": {
+        "time_phenomenon": "异常发生时间与现象（仿真时间与主要现象）",
+        "observed_data": "观察到的关键参数（如压力/流量/液位数值）",
+        "preliminary_cause": "初步判断及待确认事项，不将原因写成已证实",
+        "actions_taken": "实际完成的教学观察/报告与对象；未执行事项明确写未执行",
+        "recorder": "记录人署名"
+      },
+      "gate": {
+        "min_events": 1,
+        "required_event_types": [
+          "SUBMIT_RECORD"
+        ]
+      },
+      "hint_templates": [
+        "规范记录要求：时间明确、数据具体、依据可追溯、处置与汇报对象完整。"
+      ]
+    }
+  },
+  "rubric": {
+    "total": 100,
+    "dimensions": {
+      "process_understanding": 10,
+      "equipment_recognition": 10,
+      "instrument_parameter": 10,
+      "abnormal_detection": 10,
+      "safety_awareness": 30,
+      "standard_recording": 30
+    },
+    "evidence_source": {
+      "process_understanding": "operation_event",
+      "equipment_recognition": "operation_event",
+      "instrument_parameter": "operation_event",
+      "abnormal_detection": "scenario_diagnosis",
+      "safety_awareness": "scenario_diagnosis",
+      "standard_recording": "scenario_diagnosis"
+    }
+  }
+}

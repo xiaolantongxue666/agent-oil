@@ -255,7 +255,11 @@ async def test_adaptive_question_includes_next_step_card(client, student_token):
     data = response.json()["data"]
     evidence = next(item for item in data["evidence"] if item["type"] == "adaptive_learning")
     assert evidence["next_step"]
-    assert any(card["route"].startswith("/training/") for card in data["cards"])
+    routes = [card["route"] for card in data["cards"]]
+    # R045 修复后契约：下一步活动卡必须指向既有可启动路由
+    # （选择题 /training/...，仿真 /simulation/...），仿真任务不得再冒充选择题页。
+    assert any(r.startswith(("/training/", "/simulation/")) for r in routes), routes
+    assert not any(r.startswith("/training/SIM-") for r in routes), routes
 
 
 @pytest.mark.asyncio

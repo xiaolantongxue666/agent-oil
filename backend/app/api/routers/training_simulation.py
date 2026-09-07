@@ -12,6 +12,10 @@
 
 评分全部由 行为事件 + 状态机 + Rubric 确定，LLM 不参与。
 注册顺序必须早于 training 路由（避免 GET /training/{session_id} 遮蔽列表路径）。
+
+角色隔离：场景目录（列表/详情）为已治理的只读元数据；
+一切会话级端点（start/会话状态/事件/推进/提示/完成）在服务端强制 student 角色，
+与前端路由 meta 的 student 声明一致——teacher/admin 无法通过 API 进入学生仿真流程。
 """
 
 from __future__ import annotations
@@ -20,7 +24,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from app.api import ok
-from app.api.deps import CurrentUser, DBSession
+from app.api.deps import CurrentUser, DBSession, StudentUser
 from app.models.training import EvaluationResult, TrainingSession
 from app.scenarios import ScenarioConfigError, get_scenario, load_scenarios, student_view
 from app.schemas.training_simulation import SimulationEventRequest
@@ -62,7 +66,7 @@ async def get_simulation(scenario_code: str, user: CurrentUser, session: DBSessi
 
 @router.post("/{scenario_code}/start", summary="开始仿真实训")
 async def start_simulation(
-    scenario_code: str, user: CurrentUser, session: DBSession
+    scenario_code: str, user: StudentUser, session: DBSession
 ) -> dict:
     await enforce_feature(session, user, "training", write=True)
     uid = int(user["user_id"])
@@ -88,7 +92,7 @@ async def _load_sim_session(session_id: int, uid: int, db) -> TrainingSession:
 
 
 @router.get("/sessions/{session_id}", summary="仿真实训会话状态")
-async def get_sim_session(session_id: int, user: CurrentUser, session: DBSession) -> dict:
+async def get_sim_session(session_id: int, user: StudentUser, session: DBSession) -> dict:
     await enforce_feature(session, user, "training")
     uid = int(user["user_id"])
     sess = await _load_sim_session(session_id, uid, session)
@@ -105,7 +109,7 @@ async def get_sim_session(session_id: int, user: CurrentUser, session: DBSession
 async def submit_event(
     session_id: int,
     body: SimulationEventRequest,
-    user: CurrentUser,
+    user: StudentUser,
     session: DBSession,
 ) -> dict:
     await enforce_feature(session, user, "training", write=True)
@@ -142,7 +146,7 @@ async def submit_event(
 
 
 @router.post("/sessions/{session_id}/advance", summary="推进实训阶段")
-async def advance_session(session_id: int, user: CurrentUser, session: DBSession) -> dict:
+async def advance_session(session_id: int, user: StudentUser, session: DBSession) -> dict:
     await enforce_feature(session, user, "training", write=True)
     uid = int(user["user_id"])
     sess = await _load_sim_session(session_id, uid, session)
@@ -155,7 +159,7 @@ async def advance_session(session_id: int, user: CurrentUser, session: DBSession
 
 
 @router.post("/sessions/{session_id}/hint", summary="启发式提示（不含答案）")
-async def session_hint(session_id: int, user: CurrentUser, session: DBSession) -> dict:
+async def session_hint(session_id: int, user: StudentUser, session: DBSession) -> dict:
     await enforce_feature(session, user, "training")
     uid = int(user["user_id"])
     sess = await _load_sim_session(session_id, uid, session)
@@ -166,7 +170,7 @@ async def session_hint(session_id: int, user: CurrentUser, session: DBSession) -
 
 
 @router.post("/sessions/{session_id}/complete", summary="完成仿真实训并生成评价")
-async def complete_session(session_id: int, user: CurrentUser, session: DBSession) -> dict:
+async def complete_session(session_id: int, user: StudentUser, session: DBSession) -> dict:
     await enforce_feature(session, user, "training", write=True)
     uid = int(user["user_id"])
     sess = await _load_sim_session(session_id, uid, session)

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -57,6 +58,38 @@ def _option_score(stage: dict[str, Any], choice_code: Any) -> tuple[float, str, 
     return 0.0, "invalid_choice", False
 
 
+def _identity_consistent(
+    action: dict[str, Any],
+    event_type: str,
+    *,
+    target_id: str,
+    payload: dict[str, Any],
+) -> bool:
+    """R043：event_code 命中的动作定义必须与请求的事件类型/对象一致。
+
+    编码命中但身份不一致（如借 VIEW_TREND 类型冒领标记动作分值）视为非法事件，
+    不降级到类型模糊匹配，也不计分。
+    """
+    defined_type = action.get("event_type")
+    if defined_type is not None and str(defined_type) != str(event_type):
+        return False
+    defined_target = action.get("target_id")
+    if defined_target is not None:
+        effective = str(payload.get("target_id") or target_id or "")
+        if effective != str(defined_target):
+            return False
+    return True
+
+
+def _valid_number(value: Any) -> bool:
+    """区间端点必须是有限实数；排除 bool 与 NaN/Inf（畸形输入按未命中处理）。"""
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
+
+
 def assess_event(
     scenario: dict[str, Any],
     stage_name: str,
@@ -79,12 +112,21 @@ def assess_event(
 
     action: dict[str, Any] | None = None
     if event_type.startswith("SUBMIT_"):
-        code = stage.get("event_code") or event_code
-        action = next((a for a in actions if a.get("code") == code), None)
+        stage_code = stage.get("event_code")
+        # 客户端提交的编码与当前阶段定义不一致时，不认任何动作（防跨阶段伪造）
+        code = stage_code or event_code
+        if event_code and stage_code and str(event_code) != str(stage_code):
+            code = None
+        action = next((a for a in actions if code and a.get("code") == code), None)
     else:
         if event_code:
-            action = next((a for a in actions if a.get("code") == event_code), None)
-        if action is None:
+            code_action = next((a for a in actions if a.get("code") == event_code), None)
+            # R043：仅当编码命中且身份一致才计分；否则按未识别动作处理，不回退类型匹配
+            if code_action is not None and _identity_consistent(
+                code_action, event_type, target_id=target_id, payload=payload
+            ):
+                action = code_action
+        else:
             action = next(
                 (
                     a
@@ -122,8 +164,9 @@ def assess_event(
         start = payload.get("window_start")
         end = payload.get("window_end")
         hit = (
-            isinstance(start, (int, float))
-            and isinstance(end, (int, float))
+            _valid_number(start)
+            and _valid_number(end)
+            and float(start) <= float(end)  # 倒置区间属畸形输入，不允许靠相交判定蒙混命中
             and str(payload.get("target_id") or target_id) == str(answer.get("target_id"))
             and float(end) >= float(answer.get("window_min", 0))
             and float(start) <= float(answer.get("window_max", 0))

@@ -35,6 +35,9 @@ async def get_recommendations(user: CurrentUser, session: DBSession) -> dict:
             "difficulty": item.difficulty,
             "estimated_minutes": item.estimated_minutes,
             "current_ability_score": item.current_ability_score,
+            # R045：任务真实活动类型（simulation 的 route 由 scenario_code 承载）
+            "activity_type": item.activity_type,
+            "scenario_code": item.scenario_code,
         }
         for item in items
     ]

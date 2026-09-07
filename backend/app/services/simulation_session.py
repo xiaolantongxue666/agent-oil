@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import EvidenceSourceType, TrainingStage
@@ -57,11 +57,53 @@ def _next_stage(stage: str) -> str:
     return SIM_FLOW[idx + 1]
 
 
+def _assert_event_identity(
+    stage_cfg: dict[str, Any],
+    *,
+    event_type: str,
+    event_code: str,
+    target_id: str,
+    payload: dict[str, Any] | None,
+) -> None:
+    """R043 服务端动作身份校验：提供了 event_code 就必须与当前阶段定义一致。
+
+    - 编码不属于当前阶段任何动作（含跨场景、跨阶段冒用、伪造编码）→ 拒绝；
+    - 编码对应动作的定义类型与请求类型不一致 → 拒绝（如借 VIEW_TREND 冒领标记动作）；
+    - 编码对应动作的定义对象与请求对象不一致 → 拒绝；
+    - 未提供 event_code 时由评分层按类型+对象判定（合法探索或如实记未识别动作），不在此拦截；
+      合法错答（如标错区间、选错选项）仍放行，由其按 rubric 得低分。
+    """
+    if not event_code:
+        return
+    defined = next(
+        (a for a in stage_cfg.get("actions") or [] if str(a.get("code")) == str(event_code)),
+        None,
+    )
+    if defined is None:
+        raise SimulationStageError(f"事件编码 {event_code} 不属于当前阶段的任何动作，请求被拒绝")
+    defined_type = defined.get("event_type")
+    if defined_type is not None and str(defined_type) != str(event_type):
+        raise SimulationStageError(
+            f"事件编码 {event_code} 的动作类型应为 {defined_type}，与请求 {event_type} 不一致"
+        )
+    defined_target = defined.get("target_id")
+    if defined_target is not None:
+        effective = str((payload or {}).get("target_id") or target_id or "")
+        if effective != str(defined_target):
+            raise SimulationStageError(
+                f"事件编码 {event_code} 的动作对象应为 {defined_target}，与请求不一致"
+            )
+
+
 def check_gate(scenario: dict[str, Any], stage: str, events: list[TrainingActionEvent]) -> None:
-    """阶段离开条件：必需事件类型齐全 + 最少事件数（配置驱动）。"""
+    """阶段离开条件：必需事件类型齐全 + 最少事件数（配置驱动）。
+
+    R043/gate 收紧：只统计服务端确认的合法动作（is_expected），
+    未识别/伪造的探索事件如实留档，但不得用于绕过阶段门槛。
+    """
     gate = ((scenario.get("stages") or {}).get(stage) or {}).get("gate") or {}
     allowed = ((scenario.get("stages") or {}).get(stage) or {}).get("allowed_event_types") or []
-    stage_events = [e for e in events if e.event_type in allowed]
+    stage_events = [e for e in events if e.is_expected and e.event_type in allowed]
     min_events = int(gate.get("min_events", 0))
     if len(stage_events) < min_events:
         raise SimulationStageError(f"当前阶段至少需要 {min_events} 次有效操作（已做 {len(stage_events)}）")
@@ -125,6 +167,14 @@ async def record_event(
     allowed = stage_cfg.get("allowed_event_types") or []
     if event_type not in allowed:
         raise SimulationStageError(f"当前阶段不允许事件类型 {event_type}")
+    # R043：event_code 身份反校验（伪造/跨场景/跨阶段编码 → 409）
+    _assert_event_identity(
+        stage_cfg,
+        event_type=event_type,
+        event_code=event_code,
+        target_id=target_id,
+        payload=payload,
+    )
 
     existing = await load_events(db, sess.id)
     # 预解析动作编码以判定重复（同码动作只计首次得分）
@@ -217,9 +267,23 @@ async def complete(
     sess: TrainingSession,
     service: AbilityProfileService | None = None,
 ) -> SimulationScore:
-    """完成仿真实训：最终 gate 校验 → rubric 聚合 → EvaluationResult → 能力证据。"""
+    """完成仿真实训：原子认领完成权 → 最终 gate 校验 → rubric 聚合 → EvaluationResult → 能力证据。"""
     if _stage_value(sess) != TrainingStage.record.value:
         raise SimulationStageError("仅在记录阶段可完成仿真实训")
+    # R047：原子 claim——并发/重复 complete 只有一个事务能把 (record, 未完成) 翻为 finished；
+    # 第二个事务 rowcount=0 → 409（而不是唯一约束 500 或双份证据）。claim 与后续写入同事务提交，
+    # gate 校验失败抛错时 claim 随事务回滚，不遗留半成品状态。
+    claim = await db.execute(
+        update(TrainingSession)
+        .where(
+            TrainingSession.id == sess.id,
+            TrainingSession.stage == TrainingStage.record,
+            TrainingSession.finished.is_(False),
+        )
+        .values(finished=True)
+    )
+    if claim.rowcount != 1:
+        raise SimulationStageError("该仿真实训会话已完成或正在完成中，拒绝重复提交")
     scenario = get_scenario(sess.scenario_code)
     events = await load_events(db, sess.id)
     check_gate(scenario, TrainingStage.record.value, events)

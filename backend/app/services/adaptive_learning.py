@@ -17,6 +17,7 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.enums import TaskStatus
@@ -29,9 +30,56 @@ from app.models.training import (
     TrainingSession,
     TrainingTask,
 )
+from app.scenarios import load_scenarios
 
 # 操作型证据（§42"操作型实训表现"）：仿真实操 + 情境诊断
 OPERATIONAL_SOURCES = frozenset({"operation_event", "scenario_diagnosis"})
+
+
+def _simulation_scenario_code(task: Any) -> str | None:
+    """R045：按任务真实类型判型——仿真任务的 scenario 元数据由 seed 配置驱动生成
+    （{"simulation": true, "scenario_code": ...}），且无选择题题库。"""
+    meta = getattr(task, "scenario", None)
+    if not isinstance(meta, dict) or not meta.get("simulation"):
+        return None
+    code = str(meta.get("scenario_code") or "").strip()
+    return code or None
+
+
+def _task_activity(task: Any) -> tuple[str, str]:
+    """返回 (activity_type, route)：只使用前端既有路由，不新增 shortcut。
+
+    - simulation → /simulation/{scenario_code}（仿真工作台，simulation start）
+    - choice     → /training/{task.code}（选择题实训）
+    """
+    sim_code = _simulation_scenario_code(task)
+    if sim_code is not None:
+        return "simulation", f"/simulation/{sim_code}"
+    return "choice", f"/training/{getattr(task, 'code', '')}"
+
+
+def _launchable_tasks(tasks: list[Any], scenario_codes: set[str]) -> list[Any]:
+    """过滤出真实可启动任务（与 /training/tasks 列表及 /training/start 的门槛一致）：
+
+    - 仿真任务：其 scenario_code 必须在当前场景目录可加载（否则 start 404/409）；
+    - 选择题任务：至少一道启用且已发布的题，且每题都有选项（否则 start 409"题库不完整"）。
+    发布候选数据不迎合路由：路由按任务真实可启动性生成。
+    """
+    out: list[Any] = []
+    for task in tasks:
+        sim_code = _simulation_scenario_code(task)
+        if sim_code is not None:
+            if sim_code in scenario_codes:
+                out.append(task)
+            continue
+        questions = [
+            q
+            for q in (getattr(task, "questions", None) or [])
+            if getattr(q, "active", True) and str(getattr(q, "status", "") or "") == "published"
+        ]
+        if questions and all(getattr(q, "options", None) for q in questions):
+            out.append(task)
+    return out
 
 
 def summarize_evidence(
@@ -98,12 +146,16 @@ def plan_evidence_chain(
     confidence: str,
     evidence: dict[str, Any],
     tasks: list[TrainingTask],
+    available_scenario_codes: set[str] | None = None,
 ) -> list[dict[str, Any]] | None:
     """§43 证据优先链（纯规则，不经过模型）。
 
     触发条件（三条同时满足）：能力分低于薄弱阈值、证据置信度 ≥ medium、
     最近连续操作/诊断证据低分达到配置条数。不满足返回 None。
     满足则产出：相关知识点补学 → 案例学习 → 低一级难度训练 → 原仿真场景重练。
+
+    R045：训练步骤按任务真实类型路由（仿真→/simulation，选择题→/training）；
+    available_scenario_codes 提供时，重练目标场景不可加载则不生成该步骤。
     """
     settings = get_settings()
     if score >= settings.adaptive_weak_threshold:
@@ -157,6 +209,7 @@ def plan_evidence_chain(
         # 低一级难度训练：薄弱分越低目标难度越低（<30 → 1，<60 → 2）
         target_difficulty = 1 if score < 30 else 2
         task = min(matched, key=lambda t: (abs(t.difficulty - target_difficulty), t.id))
+        activity_type, activity_route = _task_activity(task)
         chain.append(
             {
                 "step_type": "training_retry",
@@ -167,15 +220,18 @@ def plan_evidence_chain(
                 "target_ability": ability_key,
                 "task_id": task.id,
                 "task_code": task.code,
+                "activity_type": activity_type,
                 "difficulty": task.difficulty,
                 "estimated_minutes": task.estimated_minutes,
-                "route": f"/training/{task.code}",
+                "route": activity_route,
                 "safety_critical": safety_critical,
                 "evidence_driven": True,
             }
         )
     scenario_code = evidence.get("last_scenario_code")
-    if scenario_code:
+    if scenario_code and (
+        available_scenario_codes is None or str(scenario_code) in available_scenario_codes
+    ):
         chain.append(
             {
                 "step_type": "simulation_retry",
@@ -305,10 +361,16 @@ class AdaptiveLearningService:
         tasks = (
             await db.execute(
                 select(TrainingTask)
+                .options(
+                    selectinload(TrainingTask.questions).selectinload(TrainingQuestion.options)
+                )
                 .where(TrainingTask.status == TaskStatus.published)
                 .order_by(TrainingTask.difficulty, TrainingTask.id)
             )
         ).scalars().all()
+        # R045：推荐步骤只指向真实可启动的活动（仿真场景可加载 / 选择题题库完整）
+        scenario_codes = set(load_scenarios().keys())
+        launchable = _launchable_tasks(list(tasks), scenario_codes)
         steps: list[dict[str, Any]] = []
 
         # §43 证据驱动链（安全维度排序在前），置于知识点步骤之前
@@ -327,7 +389,8 @@ class AdaptiveLearningService:
                 score=float(score_by_key.get(ability_key, 0.0)),
                 confidence=str(confidence_by_key.get(ability_key, "low")),
                 evidence=evidence_state[ability_key],
-                tasks=list(tasks),
+                tasks=launchable,
+                available_scenario_codes=scenario_codes,
             )
             if not chain:
                 continue
@@ -356,7 +419,7 @@ class AdaptiveLearningService:
                 "safety_critical": mastery["safety_critical"],
             })
             candidates = [
-                task for task in tasks
+                task for task in launchable
                 if mastery["knowledge_point"] in (task.knowledge_points or [])
                 or mastery["ability_key"] in (task.target_abilities or [])
             ]
@@ -364,6 +427,7 @@ class AdaptiveLearningService:
                 target_difficulty = 1 if mastery["mastery_score"] < 30 else 2 if mastery["mastery_score"] < 60 else 3
                 candidates.sort(key=lambda item: (abs(item.difficulty - target_difficulty), item.id))
                 task = candidates[0]
+                activity_type, activity_route = _task_activity(task)
                 step_seq += 1
                 steps.append({
                     "id": f"practice-{step_seq}",
@@ -375,14 +439,16 @@ class AdaptiveLearningService:
                     "target_ability": mastery["ability_key"],
                     "task_id": task.id,
                     "task_code": task.code,
+                    "activity_type": activity_type,
                     "difficulty": task.difficulty,
                     "estimated_minutes": task.estimated_minutes,
-                    "route": f"/training/{task.code}",
+                    "route": activity_route,
                     "safety_critical": mastery["safety_critical"],
                 })
 
         if not answer_rows and not evidence_rows:
-            for task in tasks[:3]:
+            for task in launchable[:3]:
+                activity_type, activity_route = _task_activity(task)
                 steps.append({
                     "id": f"diagnostic-{len(steps) + 1}",
                     "step_type": "diagnostic_training",
@@ -393,9 +459,10 @@ class AdaptiveLearningService:
                     "target_ability": (task.target_abilities or [""])[0],
                     "task_id": task.id,
                     "task_code": task.code,
+                    "activity_type": activity_type,
                     "difficulty": task.difficulty,
                     "estimated_minutes": task.estimated_minutes,
-                    "route": f"/training/{task.code}",
+                    "route": activity_route,
                     "safety_critical": False,
                 })
 

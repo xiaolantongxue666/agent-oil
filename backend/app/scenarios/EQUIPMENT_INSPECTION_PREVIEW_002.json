@@ -1,0 +1,491 @@
+{
+  "schema_version": 1,
+  "scenario_code": "EQUIPMENT_INSPECTION_PREVIEW_002",
+  "task_code": "SIM-EQUIP-PREVIEW-002",
+  "title": "设备状态巡检诊断教学仿真实训（候选）",
+  "teaching_simulation": true,
+  "disclaimer": "教学数据预览：全部对象、时间、数值、异常原因和评分选项均为合成教学设定，尚待教师审核；不代表真实工况、法定阈值或行业需求排名，不连接设备，不执行任何真实操作。",
+  "position_title": "站场运行岗位（教学模拟；正式岗位映射见预览元数据）",
+  "description": "模拟巡检中，运行泵 P-201 状态指示持续为运行，其教学振动指标在第15分钟后升高；备用泵 P-202 保持备用。结合流程说明和状态卡区分运行设备、备用设备与待核查异常。",
+  "difficulty": 3,
+  "estimated_minutes": 20,
+  "target_abilities": [
+    "process_understanding",
+    "equipment_recognition",
+    "instrument_parameter",
+    "abnormal_detection",
+    "safety_awareness",
+    "standard_recording"
+  ],
+  "briefing": {
+    "situation": "模拟巡检中，运行泵 P-201 状态指示持续为运行，其教学振动指标在第15分钟后升高；备用泵 P-202 保持备用。结合流程说明和状态卡区分运行设备、备用设备与待核查异常。",
+    "objectives": [
+      "核对模拟流程与对象",
+      "比较趋势与设备状态",
+      "提交判断、风险及教学方案",
+      "留下可复核的模拟记录"
+    ],
+    "safety_notes": [
+      "全部内容仅用于教学讨论",
+      "选项不构成实际生产处置指令",
+      "未知信息标明待确认，不代填实际操作事实"
+    ]
+  },
+  "monitor": {
+    "time_label": "仿真时间（分钟）",
+    "series": [
+      {
+        "id": "vibration_index",
+        "label": "P-201振动教学指标",
+        "unit": "教学相对值（非实测单位）",
+        "points": [
+          [
+            0,
+            2
+          ],
+          [
+            5,
+            2
+          ],
+          [
+            10,
+            2
+          ],
+          [
+            15,
+            3
+          ],
+          [
+            20,
+            5
+          ],
+          [
+            25,
+            6
+          ],
+          [
+            30,
+            6
+          ]
+        ]
+      },
+      {
+        "id": "load_index",
+        "label": "P-201负荷教学指标",
+        "unit": "教学相对值（非控制设定）",
+        "points": [
+          [
+            0,
+            5
+          ],
+          [
+            5,
+            5
+          ],
+          [
+            10,
+            5
+          ],
+          [
+            15,
+            5
+          ],
+          [
+            20,
+            5
+          ],
+          [
+            25,
+            5
+          ],
+          [
+            30,
+            5
+          ]
+        ]
+      }
+    ],
+    "devices": [
+      {
+        "id": "pump-duty-201",
+        "name": "运行泵 P-201（模拟）",
+        "status": "运行；振动指标上升",
+        "metrics": {
+          "运行角色": "本支路运行设备",
+          "状态依据": "教学状态指示为运行"
+        }
+      },
+      {
+        "id": "pump-standby-202",
+        "name": "备用泵 P-202（模拟）",
+        "status": "备用；未报告故障",
+        "metrics": {
+          "运行角色": "备用设备",
+          "说明": "备用状态不等于故障"
+        }
+      }
+    ],
+    "history": {
+      "text": "教学流程文字：来液缓冲容器→P-201所在运行支路→出站段；P-202为备用支路。本轮没有切换操作记录。指标只表达教学变化，不提供真实诊断阈值。",
+      "last_normal_range": {
+        "vibration_index": [
+          2,
+          2
+        ],
+        "load_index": [
+          5,
+          5
+        ]
+      }
+    },
+    "alarms": [
+      {
+        "time_min": 20,
+        "level": "教学提示",
+        "code": "DEMO-P201-STATE",
+        "text": "运行支路振动教学指标变化，需核查；不是已确认故障根因"
+      }
+    ],
+    "knowledge_docs": [
+      {
+        "id": "b-flow-note",
+        "title": "运行与备用支路（教学说明）",
+        "summary": "辨认对象、支路角色和当前状态后再解释现象。仅凭一个变化指标不能确认机械根因。"
+      }
+    ]
+  },
+  "stages": {
+    "observe": {
+      "title": "巡检观察与对象核对",
+      "goal": "查看流程、运行/备用设备及两条趋势，标记变化区间。",
+      "allowed_event_types": [
+        "VIEW_PROCESS_FLOW",
+        "VIEW_DEVICE_STATUS",
+        "VIEW_TREND",
+        "VIEW_ALARM",
+        "MARK_ABNORMAL_POINT"
+      ],
+      "actions": [
+        {
+          "code": "B-FLOW",
+          "event_type": "VIEW_PROCESS_FLOW",
+          "target_type": "diagram",
+          "target_id": "b-flow",
+          "name": "核对文字流程",
+          "ability_key": "process_understanding",
+          "points": 5,
+          "critical": true
+        },
+        {
+          "code": "B-BRANCH",
+          "event_type": "VIEW_PROCESS_FLOW",
+          "target_type": "diagram",
+          "target_id": "b-branch",
+          "name": "核对运行和备用支路",
+          "ability_key": "process_understanding",
+          "points": 5,
+          "critical": true
+        },
+        {
+          "code": "B-DUTY",
+          "event_type": "VIEW_DEVICE_STATUS",
+          "target_type": "device",
+          "target_id": "pump-duty-201",
+          "name": "查看运行泵",
+          "ability_key": "equipment_recognition",
+          "points": 5,
+          "critical": true
+        },
+        {
+          "code": "B-STANDBY",
+          "event_type": "VIEW_DEVICE_STATUS",
+          "target_type": "device",
+          "target_id": "pump-standby-202",
+          "name": "查看备用泵",
+          "ability_key": "equipment_recognition",
+          "points": 5,
+          "critical": true
+        },
+        {
+          "code": "B-VIBRATION",
+          "event_type": "VIEW_TREND",
+          "target_type": "trend",
+          "target_id": "vibration_index",
+          "name": "查看振动教学趋势",
+          "ability_key": "instrument_parameter",
+          "points": 5,
+          "critical": true
+        },
+        {
+          "code": "B-LOAD",
+          "event_type": "VIEW_TREND",
+          "target_type": "trend",
+          "target_id": "load_index",
+          "name": "查看负荷教学趋势",
+          "ability_key": "instrument_parameter",
+          "points": 5,
+          "critical": true
+        },
+        {
+          "code": "B-ALARM",
+          "event_type": "VIEW_ALARM",
+          "target_type": "alarm_panel",
+          "target_id": "b-alarm",
+          "name": "核对异常提示",
+          "ability_key": "abnormal_detection",
+          "points": 4,
+          "critical": true
+        },
+        {
+          "code": "B-MARK",
+          "event_type": "MARK_ABNORMAL_POINT",
+          "target_type": "trend",
+          "target_id": "vibration_index",
+          "name": "标记指标变化区间",
+          "ability_key": "abnormal_detection",
+          "points": 6,
+          "critical": true,
+          "answer": {
+            "target_id": "vibration_index",
+            "window_min": 15,
+            "window_max": 20
+          }
+        }
+      ],
+      "gate": {
+        "min_events": 5,
+        "required_event_types": [
+          "VIEW_DEVICE_STATUS",
+          "VIEW_TREND",
+          "VIEW_ALARM",
+          "MARK_ABNORMAL_POINT"
+        ]
+      },
+      "hint_templates": [
+        "将运行对象、备用对象与变化趋势分别核对。"
+      ]
+    },
+    "diagnose": {
+      "title": "设备状态诊断",
+      "goal": "哪项结论与当前两台设备状态相符？",
+      "allowed_event_types": [
+        "SUBMIT_DIAGNOSIS"
+      ],
+      "question": "哪项结论与当前两台设备状态相符？",
+      "event_code": "B-DIAG",
+      "ability_key": "equipment_recognition",
+      "actions": [
+        {
+          "code": "B-DIAG",
+          "name": "设备状态诊断",
+          "ability_key": "equipment_recognition",
+          "points": 15,
+          "critical": true
+        }
+      ],
+      "options": [
+        {
+          "code": "B-DIAG-O1",
+          "text": "P-201仍在运行且有待核查变化，P-202是备用；现有信息不足以确认机械根因",
+          "score": 15,
+          "correct": true
+        },
+        {
+          "code": "B-DIAG-O2",
+          "text": "P-202未运行，所以必然损坏",
+          "score": 0,
+          "error_type": "wrong_cause"
+        },
+        {
+          "code": "B-DIAG-O3",
+          "text": "P-201振动指标变化说明电机已经停机",
+          "score": 0,
+          "error_type": "wrong_cause"
+        },
+        {
+          "code": "B-DIAG-O4",
+          "text": "两台泵的编号不同，可以不区分支路角色",
+          "score": 0,
+          "error_type": "wrong_cause"
+        }
+      ],
+      "gate": {
+        "min_events": 1,
+        "required_event_types": [
+          "SUBMIT_DIAGNOSIS"
+        ]
+      },
+      "hint_templates": [
+        "结合模拟面板的时间、对象与状态作判断；不要把未确认情况写成已执行事实。"
+      ]
+    },
+    "risk_assess": {
+      "title": "巡检风险辨识",
+      "goal": "面对未确认的设备异常，哪项判断符合本轮教学边界？",
+      "allowed_event_types": [
+        "SUBMIT_RISK_ASSESSMENT"
+      ],
+      "question": "面对未确认的设备异常，哪项判断符合本轮教学边界？",
+      "event_code": "B-RISK",
+      "ability_key": "safety_awareness",
+      "actions": [
+        {
+          "code": "B-RISK",
+          "name": "巡检风险辨识",
+          "ability_key": "safety_awareness",
+          "points": 15,
+          "critical": true
+        }
+      ],
+      "options": [
+        {
+          "code": "B-RISK-O1",
+          "text": "保留异常线索并汇报，避免未经授权接触或操作设备",
+          "score": 15,
+          "correct": true
+        },
+        {
+          "code": "B-RISK-O2",
+          "text": "备用设备没有运行，可以任意拆检",
+          "score": 0,
+          "error_type": "risk_ignored"
+        },
+        {
+          "code": "B-RISK-O3",
+          "text": "只要仍有输送就无需记录异常",
+          "score": 0,
+          "error_type": "risk_ignored"
+        },
+        {
+          "code": "B-RISK-O4",
+          "text": "指标没有真实单位，因此现场设备可以任意操作",
+          "score": 0,
+          "error_type": "risk_ignored"
+        }
+      ],
+      "gate": {
+        "min_events": 1,
+        "required_event_types": [
+          "SUBMIT_RISK_ASSESSMENT"
+        ]
+      },
+      "hint_templates": [
+        "结合模拟面板的时间、对象与状态作判断；不要把未确认情况写成已执行事实。"
+      ]
+    },
+    "decision": {
+      "title": "流程核查方案",
+      "goal": "下一步教学核查怎样保持对象和流程一致？",
+      "allowed_event_types": [
+        "SUBMIT_DECISION"
+      ],
+      "question": "下一步教学核查怎样保持对象和流程一致？",
+      "event_code": "B-DECISION",
+      "ability_key": "process_understanding",
+      "actions": [
+        {
+          "code": "B-DECISION",
+          "name": "流程核查方案",
+          "ability_key": "process_understanding",
+          "points": 15,
+          "critical": true
+        }
+      ],
+      "options": [
+        {
+          "code": "B-DECISION-O1",
+          "text": "沿来液、运行支路、出站关系交叉核对现象，明确备用支路尚未切换并报告待确认事项",
+          "score": 15,
+          "correct": true
+        },
+        {
+          "code": "B-DECISION-O2",
+          "text": "把备用泵未运行记录成运行支路停输",
+          "score": 0,
+          "error_type": "unsafe_decision"
+        },
+        {
+          "code": "B-DECISION-O3",
+          "text": "只按设备编号排序，不核对流向",
+          "score": 0,
+          "error_type": "unsafe_decision"
+        },
+        {
+          "code": "B-DECISION-O4",
+          "text": "直接把教学指标变化写成已完成切换",
+          "score": 0,
+          "error_type": "unsafe_decision"
+        }
+      ],
+      "gate": {
+        "min_events": 1,
+        "required_event_types": [
+          "SUBMIT_DECISION"
+        ]
+      },
+      "hint_templates": [
+        "结合模拟面板的时间、对象与状态作判断；不要把未确认情况写成已执行事实。"
+      ]
+    },
+    "record": {
+      "title": "填写规范记录",
+      "goal": "按模板完整填写一条规范运行记录。",
+      "allowed_event_types": [
+        "SUBMIT_RECORD"
+      ],
+      "event_code": "B-RECORD",
+      "ability_key": "standard_recording",
+      "actions": [
+        {
+          "code": "B-RECORD",
+          "name": "提交规范记录",
+          "ability_key": "standard_recording",
+          "points": 15,
+          "critical": true
+        }
+      ],
+      "required_fields": [
+        "time_phenomenon",
+        "observed_data",
+        "preliminary_cause",
+        "actions_taken",
+        "recorder"
+      ],
+      "field_templates": {
+        "time_phenomenon": "异常发生时间与现象（仿真时间与主要现象）",
+        "observed_data": "观察到的关键参数（如压力/流量/液位数值）",
+        "preliminary_cause": "初步判断及依据",
+        "actions_taken": "已做处置与汇报对象",
+        "recorder": "记录人署名"
+      },
+      "gate": {
+        "min_events": 1,
+        "required_event_types": [
+          "SUBMIT_RECORD"
+        ]
+      },
+      "hint_templates": [
+        "规范记录要求：时间明确、数据具体、依据可追溯、处置与汇报对象完整。"
+      ]
+    }
+  },
+  "rubric": {
+    "total": 100,
+    "dimensions": {
+      "process_understanding": 25,
+      "equipment_recognition": 25,
+      "instrument_parameter": 10,
+      "abnormal_detection": 10,
+      "safety_awareness": 15,
+      "standard_recording": 15
+    },
+    "evidence_source": {
+      "process_understanding": "scenario_diagnosis",
+      "equipment_recognition": "scenario_diagnosis",
+      "instrument_parameter": "operation_event",
+      "abnormal_detection": "scenario_diagnosis",
+      "safety_awareness": "scenario_diagnosis",
+      "standard_recording": "operation_event"
+    }
+  }
+}

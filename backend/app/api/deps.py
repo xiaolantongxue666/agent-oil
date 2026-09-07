@@ -65,6 +65,7 @@ def require_role(*roles: str):
 DBSession = Annotated[AsyncSession, Depends(get_db)]
 CurrentUser = Annotated[dict[str, str], Depends(get_current_user)]
 TeacherUser = Annotated[dict[str, str], Depends(require_role("teacher", "admin"))]
+StudentUser = Annotated[dict[str, str], Depends(require_role("student"))]
 
 
 async def get_current_admin(user: CurrentUser, session: DBSession) -> dict[str, str]:

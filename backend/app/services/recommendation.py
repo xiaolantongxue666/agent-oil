@@ -42,6 +42,9 @@ class RecommendationItem:
     difficulty: int = 2
     estimated_minutes: int = 15
     current_ability_score: float = 0.0
+    # R045：任务真实活动类型（simulation 场景编码非空；choice 走选择题页）
+    activity_type: str = "choice"
+    scenario_code: str = ""
 
 
 class RecommendationService:
@@ -59,7 +62,42 @@ class RecommendationService:
         db: AsyncSession,
         student_id: int,
     ) -> list[RecommendationItem]:
-        """为学生生成个性化推荐。"""
+        """为学生生成个性化推荐（统一出口：标注真实活动类型，R045）。"""
+        items = await self._generate_recommendations_core(db, student_id)
+        await self._annotate_activity(db, items)
+        return items
+
+    async def _annotate_activity(
+        self, db: AsyncSession, items: list[RecommendationItem]
+    ) -> None:
+        """按任务 scenario 元数据判型：仿真任务不得被当作选择题活动下发。"""
+        by_id = {
+            task_id: item
+            for item in items
+            if (task_id := getattr(item, "task_id", None)) is not None
+        }
+        if not by_id:
+            return
+        tasks = (
+            await db.execute(select(TrainingTask).where(TrainingTask.id.in_(by_id)))
+        ).scalars().all()
+        for task in tasks:
+            item = by_id.get(getattr(task, "id", None))
+            if item is None:
+                continue
+            meta = getattr(task, "scenario", None)
+            meta = meta if isinstance(meta, dict) else {}
+            code = str(meta.get("scenario_code") or "").strip()
+            if meta.get("simulation") and code:
+                item.activity_type = "simulation"
+                item.scenario_code = code
+
+    async def _generate_recommendations_core(
+        self,
+        db: AsyncSession,
+        student_id: int,
+    ) -> list[RecommendationItem]:
+        """推荐规则（不经 LLM）。"""
         # 1. 获取六维能力
         ability_scores = await self._get_ability_scores(db, student_id)
 
