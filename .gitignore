@@ -124,3 +124,11 @@ docs/*.pptx
 docs/*.docx
 docs/*.7z
 docs/*.png
+docs/frontend_competition/
+
+# ===== 数据工作区(整体不入库, 2026-09-06 收敛) =====
+work/
+
+# ===== AI 助手本地配置(不入库, 2026-09-07) =====
+AGENTS.md
+CLAUDE.md

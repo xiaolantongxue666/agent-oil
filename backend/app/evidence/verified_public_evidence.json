@@ -1,5 +1,5 @@
 {
-  "catalog_version": "2026-08-13-v1",
+  "catalog_version": "2026-09-05-v2",
   "verification_boundary": "仅收录公开网页或公开PDF；发布时间取页面明确日期或文件正式发布日期，不以采集时间代替；不含求职者个人信息。",
   "job_postings": [
     {
@@ -12,7 +12,15 @@
       "published_at": "2025-07-02T00:00:00+08:00",
       "published_at_raw": "2025-07-02",
       "snippet": "负责罐区、码头工艺及设备操作、HSE、巡查、机泵维护、装卸船、物料收付倒、计量统计与采样；要求油气储运等相关专业及石化储运/码头操作经验。",
-      "skills": ["罐区工艺操作", "码头装卸", "HSE", "设备巡检", "机泵维护", "计量统计", "应急处置"],
+      "skills": [
+        "罐区工艺操作",
+        "码头装卸",
+        "HSE",
+        "设备巡检",
+        "机泵维护",
+        "计量统计",
+        "应急处置"
+      ],
       "match_score": 0.96,
       "source_tier": "enterprise_official_pdf",
       "verification_note": "官方招聘PDF列明岗位职责与任职要求；发布日期采用官方附件文件名日期。"
@@ -27,7 +35,12 @@
       "published_at": "2025-10-11T00:00:00+08:00",
       "published_at_raw": "2025-10-11",
       "snippet": "招聘公告岗位表包含地面工程、储气库等研究方向，专业需求覆盖油气储运工程等方向。",
-      "skills": ["油气储运工程", "地面工程", "储气库", "科研分析"],
+      "skills": [
+        "油气储运工程",
+        "地面工程",
+        "储气库",
+        "科研分析"
+      ],
       "match_score": 0.83,
       "source_tier": "enterprise_official_page",
       "verification_note": "中国石化所属研究院官方招聘页面，URL日期与页面发布日期一致。"
@@ -42,7 +55,13 @@
       "published_at": "2025-12-12T00:00:00+08:00",
       "published_at_raw": "2025-12-12",
       "snippet": "岗位要求油气储运工程等相关专业及石油化工码头营运管理、生产业务拓展经验。",
-      "skills": ["石化码头运营", "油气储运", "生产管理", "供应链管理", "业务协同"],
+      "skills": [
+        "石化码头运营",
+        "油气储运",
+        "生产管理",
+        "供应链管理",
+        "业务协同"
+      ],
       "match_score": 0.81,
       "source_tier": "enterprise_official_pdf",
       "verification_note": "官方招聘PDF列明岗位职责和专业要求；发布日期采用官方附件文件名日期。"
@@ -57,7 +76,13 @@
       "published_at": "2026-05-18T14:05:42+08:00",
       "published_at_raw": "2026-05-18 14:05:42",
       "snippet": "中石化江汉设计公司春季校招，企业业务包含油气储运、天然气处理、长输管道设计；招聘智慧能源设计、AI及数智化等岗位。",
-      "skills": ["长输管道设计", "油气储运", "天然气处理", "智能控制", "AI数智化"],
+      "skills": [
+        "长输管道设计",
+        "油气储运",
+        "天然气处理",
+        "智能控制",
+        "AI数智化"
+      ],
       "match_score": 0.78,
       "source_tier": "university_verified_repost",
       "verification_note": "高校就业/学院页面明确标注发布时间，正文指向中国石化唯一招聘网址；按转载证据计，置信度为中。"
@@ -72,10 +97,53 @@
       "published_at": "2026-05-22T00:00:00+08:00",
       "published_at_raw": "2026-05-22",
       "snippet": "中国石化所属油服企业招聘数智化技术研究岗，需求覆盖工业智能、数据科学、安全智能监测等专业方向。",
-      "skills": ["工业智能", "人工智能", "数据分析", "安全智能监测", "油气工程服务"],
-      "match_score": 0.70,
+      "skills": [
+        "工业智能",
+        "人工智能",
+        "数据分析",
+        "安全智能监测",
+        "油气工程服务"
+      ],
+      "match_score": 0.7,
       "source_tier": "university_verified_repost",
       "verification_note": "高校就业网明确标注发布时间与报名期；按转载证据计，置信度为中。"
+    },
+    {
+      "position_code": "P-GAS-DISTRIBUTION",
+      "title": "生产操作工",
+      "company": "同江市中燃城市燃气发展有限公司",
+      "region": "黑龙江佳木斯",
+      "source_name": "同江市人民政府门户网站（来源标注：同江市人力资源和社会保障局）",
+      "source_url": "https://www.tongjiang.gov.cn/tjs/c100049/202601/c04_284684.shtml",
+      "published_at": "2026-01-29T10:22:00+08:00",
+      "published_at_raw": "日期：2026-01-29 10:22",
+      "snippet": "招聘岗位：生产操作工1名。岗位职责：主要负责天然气场站设备的操作、运行以及日常维护保养。任职要求：年龄45周岁以下，大专及以上学历（个人联系方式已剔除，原文页面可复核）",
+      "skills": [
+        "equipment_recognition"
+      ],
+      "match_score": 0.9,
+      "source_tier": "government_portal_page",
+      "verification_note": "治理合格需求证据(NEW_GOVERNED_EVIDENCE) | candidate_id=CAND-00017 | U2 裁决 VALIDATED+DIRECT(high)+Primary(2026-01-29 页面明示日期)+政府门户全文链闭合；U3-HR 独立复核 CONFIRM_KEEP | original_notice_id=ON-20260129-TONGJIANG-ZRC；(source_url,position)=1单位 | skills=§16 保守映射（原文仅支撑 equipment_recognition，不凑数） | match_score=治理分层标记(DIRECT high→0.90)非算法得分，Gap 不消费 | 2026-09-05 数据完善轮按 U4 治理结论受控导入（机器核验：run-20260905；人工审核状态：待教师复核，见 HUMAN_REVIEW_REQUIRED.md）"
+    },
+    {
+      "position_code": "P-GAS-DISTRIBUTION",
+      "title": "高速公路服务区LNG加气站加气工、加油(气)员",
+      "company": "江西省高速实化新能源有限责任公司（江西省人力资源有限公司劳务外包派驻）",
+      "region": "江西（赣州南康北服务区南城加气站、景德镇浮梁黄坛服务区油气站）",
+      "source_name": "江西人才服务网·江西省人力资源有限公司（招聘实施主体平台原公告）",
+      "source_url": "https://www.jxrcfw.com/news/page/1542919067898351616",
+      "published_at": "2026-08-28T00:00:00+08:00",
+      "published_at_raw": "2026-08-28（可核全文转载 xsdkjy.com/sys-nd/5894.html 标注：发表时间 2026-08-28 17:10；原页取日级精度，故 00:00:00+08:00）",
+      "snippet": "按操作规程完成日常LNG加气工作；负责加气设备的日常维护与保养，能排除设备一般故障；开展站内日常巡检工作；加气时做好加气装置的检查工作；根据站内消防、抢修抢险等应急预案，负责随时处理站内各类应急事件（持气瓶充装作业证等优先；录用与省人力签劳务外包合同派驻）",
+      "skills": [
+        "process_understanding",
+        "equipment_recognition",
+        "abnormal_detection",
+        "safety_awareness"
+      ],
+      "match_score": 0.8,
+      "source_tier": "enterprise_official_page",
+      "verification_note": "治理合格需求证据(NEW_GOVERNED_EVIDENCE) | candidate_id=U3-00002 | 升级采纳：U3-HR 独立复核(U3_HR_INDEPENDENT_REVIEW) 建议 UPGRADE_VALIDATED，§4 五项复核无实质冲突（日期/职责原文逐词一致/企业关系一致/DIRECT判定一致；jxrcfw 原页只读复核为客户端渲染壳 HTTP200 仅标题可见，§13 未绕行，以 U3 全文核验记录+本地全文缓存佐证）| 原 U3 记录保持 MANUAL_REVIEW 不改（§4）| Primary 2026-08-28 | original_notice_id=ON-20260828-JXGS-LNG8 | 转载链 xsdkjy/eoffcn/sohu SAME_ORIGINAL_NOTICE 合并计 1 单位；两岗名、南城2+黄坛6 不按人数/岗位拆分（§7/§18）| skills=canonical 能力键、源于职责原文，不映射 instrument_parameter/standard_recording（§16）| match_score=治理分层标记(DIRECT medium→0.80)非算法得分 | 2026-09-05 数据完善轮按 U4 治理结论受控导入（机器核验：run-20260905；人工审核状态：待教师复核，见 HUMAN_REVIEW_REQUIRED.md）"
     }
   ],
   "industry_evidence": [
@@ -87,8 +155,16 @@
       "source_url": "https://www.nea.gov.cn/20250829/a4e2deb9b6444df1a191b9d60c111ffd/20250829a4e2deb9b6444df1a191b9d60c111ffd_43ab87a785d1b64d49b9210dbc15d3781e.pdf",
       "published_at": "2025-08-29T00:00:00+08:00",
       "summary": "国家级年度报告，为天然气供需、储运基础设施与产业发展判断提供权威背景。",
-      "themes": ["天然气供需", "储运基础设施", "能源安全"],
-      "skills": ["管网运行", "供需分析", "储气调峰"],
+      "themes": [
+        "天然气供需",
+        "储运基础设施",
+        "能源安全"
+      ],
+      "skills": [
+        "管网运行",
+        "供需分析",
+        "储气调峰"
+      ],
       "confidence": "high"
     },
     {
@@ -99,8 +175,16 @@
       "source_url": "https://www.nea.gov.cn/20250327/33dd45621597404781149719b161c4bd/c.html",
       "published_at": "2025-03-27T00:00:00+08:00",
       "summary": "部署油气基础设施规划建设与管道保护工作，强调安全运行和风险治理。",
-      "themes": ["基础设施规划", "管道保护", "安全治理"],
-      "skills": ["管道巡护", "风险辨识", "应急管理"],
+      "themes": [
+        "基础设施规划",
+        "管道保护",
+        "安全治理"
+      ],
+      "skills": [
+        "管道巡护",
+        "风险辨识",
+        "应急管理"
+      ],
       "confidence": "high"
     },
     {
@@ -111,8 +195,16 @@
       "source_url": "https://sdb.nea.gov.cn/xxgk/zcjd/202510/t20251016_288791.html",
       "published_at": "2025-10-16T00:00:00+08:00",
       "summary": "解读油气管网设施公平开放监管要求，强化设施运营、信息公开和规范服务。",
-      "themes": ["公平开放", "设施运营", "监管合规"],
-      "skills": ["运行合规", "信息记录", "服务协同"],
+      "themes": [
+        "公平开放",
+        "设施运营",
+        "监管合规"
+      ],
+      "skills": [
+        "运行合规",
+        "信息记录",
+        "服务协同"
+      ],
       "confidence": "high"
     },
     {
@@ -123,8 +215,16 @@
       "source_url": "https://www.nea.gov.cn/20260116/c553fff2468f44f6860168b058c6b9fa/c.html",
       "published_at": "2026-01-16T00:00:00+08:00",
       "summary": "总结油气产供储销、管道建设与数字化监测进展，并指出人工智能在石油石化场景的融合趋势。",
-      "themes": ["产供储销", "数字化监测", "人工智能"],
-      "skills": ["数字化运行", "智能监测", "数据分析"],
+      "themes": [
+        "产供储销",
+        "数字化监测",
+        "人工智能"
+      ],
+      "skills": [
+        "数字化运行",
+        "智能监测",
+        "数据分析"
+      ],
       "confidence": "high"
     },
     {
@@ -135,8 +235,16 @@
       "source_url": "https://www.nea.gov.cn/20260609/ac48ec51a7424373a377eb7126107e19/c.html",
       "published_at": "2026-06-09T00:00:00+08:00",
       "summary": "部署年度投资建设、管道保护与风险防控，关注人工智能、无人机等技术在巡检中的应用。",
-      "themes": ["投资建设", "管道保护", "智能巡检"],
-      "skills": ["风险防控", "无人机巡检", "AI辅助巡检"],
+      "themes": [
+        "投资建设",
+        "管道保护",
+        "智能巡检"
+      ],
+      "skills": [
+        "风险防控",
+        "无人机巡检",
+        "AI辅助巡检"
+      ],
       "confidence": "high"
     },
     {
@@ -147,8 +255,16 @@
       "source_url": "https://www.sinopecgroup.com/group/000/000/070/70224.shtml",
       "published_at": "2026-02-06T00:00:00+08:00",
       "summary": "从产业结构、转型升级与竞争格局分析石油和化工行业发展方向。",
-      "themes": ["产业结构", "转型升级", "行业竞争"],
-      "skills": ["产业分析", "绿色低碳", "数智化转型"],
+      "themes": [
+        "产业结构",
+        "转型升级",
+        "行业竞争"
+      ],
+      "skills": [
+        "产业分析",
+        "绿色低碳",
+        "数智化转型"
+      ],
       "confidence": "high"
     },
     {
@@ -159,8 +275,16 @@
       "source_url": "https://www.qingdao.gov.cn/zwgk/zdgk/zdlyzt/zdly/gzgqxx/qyyy/202607/t20260713_10675289.shtml",
       "published_at": "2026-07-07T00:00:00+08:00",
       "summary": "公开案例展示人工智能在燃气巡检、运行监测和知识支撑中的落地应用。",
-      "themes": ["城市燃气", "人工智能", "安全运行"],
-      "skills": ["智能巡检", "异常识别", "知识库应用"],
+      "themes": [
+        "城市燃气",
+        "人工智能",
+        "安全运行"
+      ],
+      "skills": [
+        "智能巡检",
+        "异常识别",
+        "知识库应用"
+      ],
       "confidence": "high"
     },
     {
@@ -171,8 +295,16 @@
       "source_url": "https://www.pipechina.com.cn/front/jtgg/6787.html",
       "published_at": "2026-07-09T00:00:00+08:00",
       "summary": "公开储气库设施开放信息及相关技术标准目录，反映设施运营与标准化要求。",
-      "themes": ["储气库", "设施开放", "技术标准"],
-      "skills": ["储气库运行", "计量系统", "标准执行"],
+      "themes": [
+        "储气库",
+        "设施开放",
+        "技术标准"
+      ],
+      "skills": [
+        "储气库运行",
+        "计量系统",
+        "标准执行"
+      ],
       "confidence": "high"
     }
   ]
