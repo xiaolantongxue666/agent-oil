@@ -4,41 +4,146 @@
 >
 > "产业需求可感知 → 专业群能力可分析 → 培养方案可调整 → 岗位技能可实训 → 学生能力可证据化 → 学习路径可自适应 → 教学效果可验证"
 
+[![在线体验](https://img.shields.io/badge/在线体验-oil.lanyongzhong.app-0B5F6B?style=flat-square)](https://oil.lanyongzhong.app)
+![Vue 3](https://img.shields.io/badge/前端-Vue%203-42b883?style=flat-square)
+![FastAPI](https://img.shields.io/badge/后端-FastAPI-009688?style=flat-square)
+![Python](https://img.shields.io/badge/Python-≥3.11-blue?style=flat-square)
+![PostgreSQL](https://img.shields.io/badge/数据库-PostgreSQL%2016-336791?style=flat-square)
+
+> 🌐 **不想部署？直接在线体验 → [https://oil.lanyongzhong.app](https://oil.lanyongzhong.app)**（见下文「在线体验」）
+
 XA-202603 参赛项目。本系统不是"油气知识聊天机器人"，而是一套利用产业岗位证据驱动职业院校专业群建设、并通过岗位情境实训形成学生技能证据闭环的智能体系统。
 
----
+## 目录
 
-## 一、项目简介
+- [核心亮点](#核心亮点)
+- [在线体验](#在线体验)
+- [快速开始](#快速开始)
+  - [方式一：本地运行](#方式一本地运行)
+  - [方式二：Docker 部署](#方式二docker-部署)
+  - [Demo 账号与主要环境变量](#demo-账号与主要环境变量)
+- [功能总览](#功能总览)
+- [系统架构](#系统架构)
+- [关键机制说明](#关键机制说明)
+- [当前数据规模](#当前数据规模演示快照)
+- [技术栈与项目结构](#技术栈与项目结构)
+- [测试](#测试)
+- [推荐演示路径](#推荐演示路径)
+- [安全与合规边界](#安全与合规边界)
+- [扩展方向](#扩展方向)
+
+## 核心亮点
 
 油训智安（OilTrainSafe）在既有"岗位—任务—训练—评价—画像—推荐"教学闭环基础上，完成了以专业群为核心的四项升级（P0）：
 
 1. **能力评价模型重构（P0-1）**：学生能力 = 指数移动平均（EMA）的当前水平，与"成长累计 Growth XP"彻底分离；低分证据会拉低能力分，不再出现"重复训练刷到 100 分"。
-2. **操作型岗位实训（P0-2）**：新增"站场参数异常诊断教学仿真实训"——学生按 观察 → 诊断 → 风险评估 → 处置决策 → 规范记录 的状态机完成实训，每个动作都是行为事件，由"行为事件 + 状态机 + Rubric"确定性评分，LLM 不参与评分。
+2. **操作型岗位实训（P0-2）**：新增"站场参数异常诊断教学仿真实训"——学生按 观察 → 诊断 → 风险评估 → 处置决策 → 规范记录 的状态机完成实训，每个动作都是行为事件，由"行为事件 + 状态机 + Rubric"确定性评分，LLM 不参与评分。另有"设备状态巡检诊断""HSE 风险辨识与规范记录"两个候选场景已按同一机制发布。
 3. **专业群建设（P0-3）**：新增 专业群 → 专业 → 岗位 → 典型任务 → 能力 → 课程 真实数据模型，计算产业需求与课程供给的能力 Gap，教师端提供"专业群建设驾驶舱"。
 4. **比赛模式首页（P0-4）**：一条可下钻的主链 + 一个由系统实时计算的真实发现案例 + 可追溯证据链，串起完整演示闭环。
 
-核心演示主线（§40，系统验收主线）：
+## 在线体验
 
-```text
-比赛首页
-→ 查看产业岗位变化          （招聘快照 + 产业证据 + 权威标准）
-→ 查看来源证据              （企业/来源/发布日期/技能词/原文链接）
-→ 查看专业群能力 Gap        （gap = 产业需求 − 课程供给）
-→ 查看课程覆盖缺口          （课程能力矩阵热力图）
-→ 生成培养方案调整草案      （规则生成，非模型结论）
-→ 教师审核                  （Human-in-the-loop）
-→ 进入对应岗位能力图谱
-→ 学生进入岗位仿真实训      （站场参数异常诊断）
-→ 完成异常诊断              （行为事件全程记录）
-→ 规则评分                  （Rubric，不经 LLM）
-→ 生成 AbilityEvidence      （统一能力证据）
-→ 更新 Ability Score        （EMA）
-→ 更新 Confidence           （置信度）
-→ 生成个性化补学            （证据驱动学习路径）
-→ 再次训练                  （验证能力提升）
+**https://oil.lanyongzhong.app**
+
+- 使用下方 [Demo 账号](#demo-账号与主要环境变量) 中任意角色登录即可体验完整流程。
+- 在线环境为**演示数据**，成绩、实训记录等会周期性重置，勿作个人用途。
+- 仿真参数（压力/温度/流量等）全部为教学模拟数据，与真实生产系统无关（详见[安全与合规边界](#安全与合规边界)）。
+
+## 快速开始
+
+### 前置要求
+
+| 方式 | 依赖 |
+|------|------|
+| 本地运行 | Python ≥ 3.11、Node.js ≥ 18；PostgreSQL 16 与 Qdrant 可用 Docker 单独启动（快速体验亦可改用 SQLite） |
+| Docker 部署 | Docker + Docker Compose |
+
+### 方式一：本地运行
+
+```bash
+# 0. 配置环境变量（两种方式的共同前提，.env 不提交 Git）
+cp .env.example .env
+# 编辑 .env 填入 BAILIAN_API_KEY 等；无 Key 时设 LLM_USE_MOCK=true，
+# 非 AI 链路可完整运行，AI 相关功能自动降级 Mock。
+
+# 可选：只用 Docker 启动数据库与向量库两个基础服务
+docker-compose up -d postgres qdrant
+
+# 1. 后端（默认 DATABASE_URL 指向本机 PostgreSQL；
+#    无 PG 环境可改为 sqlite+aiosqlite:///./dev.db 快速体验）
+cd backend
+pip install -e ".[dev]"
+alembic upgrade head        # 数据库迁移
+python -m app.seed          # 幂等种子数据（重复执行不会重复建数据）
+uvicorn app.main:app --reload --port 8000    # http://localhost:8000/api/docs
+
+# 2. 前端（另开终端）
+cd frontend
+npm install
+npm run dev                 # http://localhost:5173（/api 自动代理到 8000）
 ```
 
-## 二、新系统架构
+### 方式二：Docker 部署
+
+```bash
+cp .env.example .env        # compose 通过 env_file 读取
+docker-compose up -d --build
+```
+
+| 入口 | 地址 |
+|------|------|
+| **系统首页（Nginx 统一入口）** | http://localhost:8080 |
+| 后端直连 | http://localhost:8000，API 文档 `/api/docs` |
+| PostgreSQL / Qdrant | 5432 / 6333（仅供容器内使用） |
+
+栈内包含 postgres、qdrant、backend、frontend、nginx 五个服务。后端容器启动时自动执行 Alembic 迁移与幂等种子；重复启动不会重复建数据，**不要求删除数据库重新初始化**。服务器线上部署使用 `docker-compose.server.yml` 叠加配置。
+
+### Demo 账号与主要环境变量
+
+| 角色 | 账号 | 密码 |
+|------|------|------|
+| 学生 | student | student123 |
+| 教师 | teacher | teacher123 |
+| 管理员 | admin | admin123 |
+
+> 仅用于演示，密码 bcrypt 哈希存储，JWT 认证。生产/评审环境必须修改演示密码和 `JWT_SECRET`。
+
+| 变量 | 说明 |
+|------|------|
+| `DATABASE_URL` | PostgreSQL 连接串（本地开发亦可 SQLite） |
+| `JWT_SECRET` | JWT 签名密钥（生产必改） |
+| `BAILIAN_API_KEY` / `BAILIAN_BASE_URL` / `BAILIAN_MODEL` | 百炼模型接入（仅存后端） |
+| `LLM_USE_MOCK` | 无 Key 时自动 Mock，非 AI 链路可完整运行 |
+| `QDRANT_URL` | Qdrant 地址 |
+| `EMBEDDING_*` / `RERANKER_*` | 检索与重排模型后端 |
+| `ABILITY_EMA_ALPHA` 等 `ABILITY_*` | 能力评价参数（α、证据权重、置信度阈值、XP 规则） |
+| `ADAPTIVE_*` | 自适应学习阈值（薄弱线/安全下限/低分连击/门禁难度等） |
+
+其余变量见 [.env.example](.env.example)。
+
+## 功能总览
+
+- **学生端**：我的成长、岗位能力图谱、岗位情境实训（选择题）、岗位仿真实训台
+  （四区布局：工艺流程图 / 模拟参数与趋势 / 阶段任务 / 教学动作区）、训练报告
+  （六维雷达 + 能力变化 + 置信度 + 漏项 + 推荐补学 + 再练入口）、岗位能力成长档案
+  （Growth XP / 证据档案 / 时间线）、个性化学习路径（证据驱动 + 安全置顶）、专业资料库、学习助手。
+- **教师端**：教学驾驶舱、**专业群建设驾驶舱**（群关系图下钻 / 课程能力矩阵热力图 /
+  产业需求-课程供给-Gap 三联 / 建议草案）、岗位与培养方案（产业证据、Gap 分析、
+  草案审核发布与版本管理）、实训任务与题库、学情诊断与复盘、知识资源建设、岗位图谱配置。
+- **管理员**：组织与用户、功能与权限开关、模型服务配置（Provider/模型/端点/超时，
+  Key 不完整展示）、教学策略工坊（Prompt 运行时版本管理）。
+- **比赛模式首页**（`/competition`，三端入口）：主链下钻 + 真实发现案例 + 证据链。
+
+## 系统架构
+
+| 层 | 技术 |
+|----|------|
+| 前端 | Vue 3、TypeScript、Vite、Vue Router、Pinia、Element Plus、Axios、ECharts |
+| 后端 | Python 3.11+、FastAPI、Pydantic v2、SQLAlchemy 2.x、Alembic、httpx、OpenAI SDK |
+| 数据库 | PostgreSQL 16（开发/测试亦可 SQLite） |
+| 向量库 | Qdrant |
+| 模型 | 可配置 Embedding / Reranker；LLM 经 Gateway 接入（百炼 Qwen 或 Mock），模型配置支持管理员运行时切换 |
+| 部署 | Docker、docker-compose、Nginx |
 
 ```text
 产业证据层
@@ -67,6 +172,41 @@ XA-202603 参赛项目。本系统不是"油气知识聊天机器人"，而是�
   → 知识补学 → 案例学习 → 降档训练 → 原场景重练
 ```
 
+### 双闭环：专业培养方案与学生自适应学习
+
+```text
+专业层（不读取学生成绩）
+招聘发布样本 + 岗位能力图谱 + 产业政策/报告 + 权威标准
+  → 群级需求画像与课程供给
+  → 能力 Gap（确定性计算）
+  → 培养方案调整草案（规则生成）
+  → 教师编辑与证据核验
+  → 发布 V2/V3...，旧版本归档可追溯
+
+学生层（不修改专业培养方案）
+多源能力证据（知识题/情境选择/情境诊断/操作事件/教师评价）
+  → EMA 更新能力分 + 置信度 + 成长 XP
+  → 薄弱项 × 置信度 × 近期表现触发证据链
+  → 安全意识低于下限置顶安全补学（规则，非模型判断）
+  → 知识补学 → 案例学习 → 降档训练 → 原场景重练
+  → 重练结果实时更新画像
+```
+
+### 操作型仿真实训链路
+
+```text
+场景 JSON（教学模拟数据 + Rubric）
+  → 学生进入实训台（四区布局）
+  → 每个动作写入 TrainingActionEvent（顺序/目标/载荷）
+  → 后端状态机 gate 校验推进（前端不可跳步）
+  → 卡住时给启发式提示（模板，不含答案）
+  → 完成：行为事件 × Rubric 确定性评分（LLM 恒 0 分）
+  → 生成 AbilityEvidence → 更新 Ability Score / Confidence / Growth XP
+  → 报告页：六维雷达 + 能力变化 + 漏项 + 推荐补学 + 再练
+```
+
+## 关键机制说明
+
 ### 专业群是什么
 
 一个专业群（如"智慧油气储运与安全专业群"，`PG-OIL-001`）下辖多个专业（Major）：
@@ -78,7 +218,7 @@ XA-202603 参赛项目。本系统不是"油气知识聊天机器人"，而是�
 
 ### 产业数据如何进入系统
 
-- **人工核验证据目录**：`backend/app/evidence/verified_public_evidence.json`，seed 幂等写入（当前 5 条招聘样本 + 8 条产业证据），每条含来源网址、发布日期、采集时间、内容指纹、来源级别与核验说明。
+- **人工核验证据目录**：`backend/app/evidence/verified_public_evidence.json`，seed 幂等写入（当前 7 条招聘样本 + 8 条产业证据），每条含来源网址、发布日期、采集时间、内容指纹、来源级别与核验说明。
 - **联网采集**：教师端"岗位图谱配置"触发公开招聘发现（浏览器 Agent + 搜索双通道），通过规则校验后复制为 `JobPostingSnapshot`。
 - **权威标准**：60 条权威知识摘要（`data/knowledge/authoritative_knowledge.json`）带标准编号/章节/PDF 页码，通过关系表进入图谱、实训与问答。
 - **时间边界**：`observed_at`（采集时间）永不冒充 `published_at`（发布时间）；日期置信度低（low）的快照不进入趋势与需求计算；企业官方页面/PDF 记为高置信度，核验转载记为中置信度。
@@ -100,7 +240,8 @@ gap = industry_demand − curriculum_supply（百分点）
 
 ### 操作实训怎么评分
 
-场景为 JSON 配置（`backend/app/scenarios/PIPELINE_ABNORMAL_001.json`，当前内置 1 个完整示范场景），
+场景为 JSON 配置（`backend/app/scenarios/`，当前内置 1 个完整示范场景 `PIPELINE_ABNORMAL_001.json`
++ 2 个已发布候选场景），
 含 `teaching_simulation=true` 强制声明、监控参数、阶段（observe → diagnose → risk_assess →
 decision → record）、期望/关键动作与 Rubric：
 
@@ -160,20 +301,14 @@ new_score = old_score × (1 − α_eff) + current_evidence_score × α_eff
 | 培养方案调整草案 | 产业岗位与培养方案 → 逐项编辑 → 审核发布 | 不直接面向学生（教师侧实施） |
 | 专业知识回答 | 不可发布，仅实时回答并强制引用核验 | 实时 |
 
-## 三、功能总览
+### AI 生成内容标识
 
-- **学生端**：我的成长、岗位能力图谱、岗位情境实训（选择题）、岗位仿真实训台
-  （四区布局：工艺流程图 / 模拟参数与趋势 / 阶段任务 / 教学动作区）、训练报告
-  （六维雷达 + 能力变化 + 置信度 + 漏项 + 推荐补学 + 再练入口）、岗位能力成长档案
-  （Growth XP / 证据档案 / 时间线）、个性化学习路径（证据驱动 + 安全置顶）、专业资料库、学习助手。
-- **教师端**：教学驾驶舱、**专业群建设驾驶舱**（群关系图下钻 / 课程能力矩阵热力图 /
-  产业需求-课程供给-Gap 三联 / 建议草案）、岗位与培养方案（产业证据、Gap 分析、
-  草案审核发布与版本管理）、实训任务与题库、学情诊断与复盘、知识资源建设、岗位图谱配置。
-- **管理员**：组织与用户、功能与权限开关、模型服务配置（Provider/模型/端点/超时，
-  Key 不完整展示）、教学策略工坊（Prompt 运行时版本管理）。
-- **比赛模式首页**（`/competition`，三端入口）：主链下钻 + 真实发现案例 + 证据链。
+- 问答标题与每条回答显示"AI 生成内容"，提示依据引用核验。
+- AI 题库显示"AI 生成内容 · 发布前须教师审核"；学生端显示"已经教师审核"。
+- 图谱草稿显示模型、证据数、置信度，审核发布前不进入正式图谱。
+- 培养方案调整由证据规则生成并经教师审核，不冒充模型结论。
 
-## 四、当前数据规模（演示快照）
+## 当前数据规模（演示快照）
 
 | 数据对象 | 规模 | 说明 |
 |---------|-----:|------|
@@ -182,157 +317,44 @@ new_score = old_score × (1 − α_eff) + current_evidence_score × α_eff
 | 专业岗位 | 6 个 | 每个岗位配置来源依据、典型任务和六维能力权重 |
 | 典型工作任务 | 种子基线 43 项 | 发布图谱版本后动态增加，以数据库实时统计为准 |
 | 权威知识摘要 | 60 条 | 均含来源编号、章节和 PDF 页码 |
-| 核验招聘样本 | 5 条 | 覆盖 2025-07 至 2026-05，含联网采集动态增长 |
+| 核验招聘样本 | 7 条 | 覆盖 2025-07 至 2026-08，含联网采集动态增长 |
 | 核验产业证据 | 8 条 | 国家能源局、中国石化、国家管网等公开材料 |
 | 选择题实训任务 | 8 个 | 覆盖六维与综合能力 |
-| 操作型仿真场景 | 1 个 | 站场参数异常诊断教学仿真实训（示范精品场景） |
+| 操作型仿真场景 | 3 个 | 示范：站场参数异常诊断；候选：设备状态巡检诊断、HSE 风险辨识与规范记录 |
 
 以上数量是当前种子/演示环境快照，不是系统不变量；以数据库实时统计为准。
 
-## 五、技术栈与目录
+## 技术栈与项目结构
 
-| 层 | 技术 |
-|----|------|
-| 前端 | Vue 3、TypeScript、Vite、Vue Router、Pinia、Element Plus、Axios、ECharts |
-| 后端 | Python 3.11+、FastAPI、Pydantic v2、SQLAlchemy 2.x、Alembic、httpx、OpenAI SDK |
-| 数据库 | PostgreSQL 16（开发/测试亦可 SQLite） |
-| 向量库 | Qdrant |
-| 模型 | 可配置 Embedding / Reranker；LLM 经 Gateway 接入（百炼 Qwen 或 Mock），模型配置支持管理员运行时切换 |
-| 部署 | Docker、docker-compose、Nginx |
-
-```
+```text
 agent-oil/
-├── frontend/            # Vue3 前端
+├── frontend/                # Vue 3 + Vite + TypeScript + Element Plus
 ├── backend/
 │   ├── app/
-│   │   ├── api/         # 路由（含 professional_group / training_simulation / competition）
-│   │   ├── core/        # 配置（EMA/权重/置信度/自适应阈值全部集中于此）
-│   │   ├── models/      # ORM（含 ability_evidence / professional_group / training_action_event）
-│   │   ├── services/    # 业务服务（能力画像/仿真实训/专业群分析/比赛总览等）
-│   │   ├── scenarios/   # 仿真实训场景 JSON（PIPELINE_ABNORMAL_001.json）
-│   │   ├── evidence/    # 经核验的公开岗位与产业证据目录
-│   │   ├── llm/ rag/ safety/ workflow/ evaluation/
-│   │   └── seed.py      # 幂等种子
-│   ├── alembic/versions/  # 含 20260901_01 能力证据、20260901_02 仿真实训、20260902_01 专业群
-│   └── tests/           # 362 个测试（unit + integration）
-├── data/                # 知识/标准/教材/案例数据
-├── docker/ docker-compose.yml .env.example
-└── README.md
+│   │   ├── api/             # 路由（含 professional_group / training_simulation / competition）
+│   │   ├── core/            # 配置（EMA/证据权重/置信度/自适应阈值全部集中于此）
+│   │   ├── models/          # ORM（含 ability_evidence / professional_group / training_action_event）
+│   │   ├── services/        # 业务服务（能力画像/仿真实训/专业群分析/比赛总览等）
+│   │   ├── scenarios/       # 仿真实训场景 JSON（PIPELINE_ABNORMAL_001.json）
+│   │   ├── evidence/        # 经核验的公开岗位与产业证据目录
+│   │   ├── knowledge/       # 权威知识目录加载
+│   │   ├── llm/ rag/ safety/ workflow/ evaluation/ recommendation/
+│   │   └── seed.py          # 幂等种子
+│   ├── alembic/versions/    # 迁移（含能力证据、仿真实训、专业群三组新表）
+│   └── tests/               # 420 个测试（unit + integration）
+├── data/knowledge/          # 权威知识目录与语料（运行时读取 + 镜像内置）
+├── docker/                  # 后端/前端镜像构建文件
+├── docker-compose.yml       # 全栈本地编排（postgres + qdrant + backend + frontend + nginx）
+├── docker-compose.server.yml# 服务器部署叠加配置
+├── scripts/                 # 辅助构建脚本
+└── .env.example             # 环境变量模板
 ```
 
-## 六、快速开始
-
-### 前置要求
-- Python ≥ 3.11、Node.js ≥ 18、Docker + docker-compose
-
-### 1. 配置环境变量
-```bash
-cp .env.example .env
-# 编辑 .env，填入 BAILIAN_API_KEY 等（无 Key 时 LLM_USE_MOCK=true 自动降级 Mock）
-```
-
-### 2. 一键启动（Docker）
-```bash
-docker-compose up -d --build
-```
-启动后访问：http://localhost:8080（后端直连开发端口 8000，API 文档 /api/docs）。
-后端容器启动时自动执行 Alembic 迁移和幂等种子；重复启动不会重复建数据，
-**不要求删除数据库重新初始化**。
-
-### 3. 本地开发
-```bash
-# 后端
-cd backend
-pip install -e ".[dev]"
-alembic upgrade head
-uvicorn app.main:app --reload --port 8000
-
-# 前端
-cd frontend
-npm install
-npm run dev        # http://localhost:5173（/api 代理到 8000）
-npm run type-check && npm run build
-```
-
-### Demo 账号
-| 角色 | 账号 | 密码 |
-|------|------|------|
-| 学生 | student | student123 |
-| 教师 | teacher | teacher123 |
-| 管理员 | admin | admin123 |
-
-> 仅用于演示，密码 bcrypt 哈希存储，JWT 认证。生产/评审环境必须修改演示密码和 `JWT_SECRET`。
-
-### 主要环境变量
-| 变量 | 说明 |
-|------|------|
-| `DATABASE_URL` | PostgreSQL 连接串 |
-| `JWT_SECRET` | JWT 签名密钥（生产必改） |
-| `BAILIAN_API_KEY` / `BAILIAN_BASE_URL` / `BAILIAN_MODEL` | 百炼模型接入（仅存后端） |
-| `LLM_USE_MOCK` | 无 Key 时自动 Mock，非 AI 链路可完整运行 |
-| `QDRANT_URL` | Qdrant 地址 |
-| `EMBEDDING_*` / `RERANKER_*` | 检索与重排模型后端 |
-| `ABILITY_EMA_ALPHA` 等 `ABILITY_*` | 能力评价参数（α、证据权重、置信度阈值、XP 规则） |
-| `ADAPTIVE_*` | 自适应学习阈值（薄弱线/安全下限/低分连击/门禁难度等） |
-
-其余变量见 [.env.example](.env.example)。
-
-## 七、核心链路图解
-
-### 双闭环：专业培养方案与学生自适应学习
-
-```text
-专业层（不读取学生成绩）
-招聘发布样本 + 岗位能力图谱 + 产业政策/报告 + 权威标准
-  → 群级需求画像与课程供给
-  → 能力 Gap（确定性计算）
-  → 培养方案调整草案（规则生成）
-  → 教师编辑与证据核验
-  → 发布 V2/V3...，旧版本归档可追溯
-
-学生层（不修改专业培养方案）
-多源能力证据（知识题/情境选择/情境诊断/操作事件/教师评价）
-  → EMA 更新能力分 + 置信度 + 成长 XP
-  → 薄弱项 × 置信度 × 近期表现触发证据链
-  → 安全意识低于下限置顶安全补学（规则，非模型判断）
-  → 知识补学 → 案例学习 → 降档训练 → 原场景重练
-  → 重练结果实时更新画像
-```
-
-### 操作型仿真实训链路
-
-```text
-场景 JSON（教学模拟数据 + Rubric）
-  → 学生进入实训台（四区布局）
-  → 每个动作写入 TrainingActionEvent（顺序/目标/载荷）
-  → 后端状态机 gate 校验推进（前端不可跳步）
-  → 卡住时给启发式提示（模板，不含答案）
-  → 完成：行为事件 × Rubric 确定性评分（LLM 恒 0 分）
-  → 生成 AbilityEvidence → 更新 Ability Score / Confidence / Growth XP
-  → 报告页：六维雷达 + 能力变化 + 漏项 + 推荐补学 + 再练
-```
-
-### AI 生成内容标识与审核
-
-- 问答标题与每条回答显示"AI 生成内容"，提示依据引用核验。
-- AI 题库显示"AI 生成内容 · 发布前须教师审核"；学生端显示"已经教师审核"。
-- 图谱草稿显示模型、证据数、置信度，审核发布前不进入正式图谱。
-- 培养方案调整由证据规则生成并经教师审核，不冒充模型结论。
-
-## 八、安全边界
-
-- 本系统是**职业教学与虚拟实训系统**，非真实生产/SCADA/DCS/控制/应急系统。
-- 不连接真实油气生产设备；不输出可直接用于真实现场的危险控制指令。
-- 所有压力/温度/流量/液位/设备状态/报警/趋势均为**教学模拟数据**；
-  仿真实训场景强制携带 `teaching_simulation` 标志与免责声明，前端三处常驻声明。
-- 岗位/任务映射为基于职业标准的教学化表达，不构成真实操作规程。
-- API Key 仅存后端环境变量，不进 Git、不发给前端、不写日志。
-
-## 九、测试
+## 测试
 
 ```bash
 cd backend
-pytest                        # 全量（当前 362 个用例）
+pytest                        # 全量（当前 420 个用例）
 pytest tests/unit             # 纯单元
 pytest tests/integration/test_competition_overview.py   # 单文件
 
@@ -341,12 +363,36 @@ npm run type-check
 npm run build
 ```
 
+测试套件自给自足：`conftest.py` 自动注入测试环境（SQLite + Mock LLM），无需外部服务。
 测试覆盖：能力评价（EMA 收敛/升降/权重/置信度五类必测）、仿真评分与状态机、
 专业群结构与 Gap 恒等式、比赛总览同口径、自适应证据链与安全置顶、认证与权限、
 知识库与分块、RAG、选择题训练、规则评价、推荐、教师分析接口等。
 岗位图谱测试校验每个岗位及每项任务的能力权重合计为 100%。
 
-## 十、推荐演示路径
+## 推荐演示路径
+
+系统验收主线（核心演示链路）：
+
+```text
+比赛首页
+→ 查看产业岗位变化          （招聘快照 + 产业证据 + 权威标准）
+→ 查看来源证据              （企业/来源/发布日期/技能词/原文链接）
+→ 查看专业群能力 Gap        （gap = 产业需求 − 课程供给）
+→ 查看课程覆盖缺口          （课程能力矩阵热力图）
+→ 生成培养方案调整草案      （规则生成，非模型结论）
+→ 教师审核                  （Human-in-the-loop）
+→ 进入对应岗位能力图谱
+→ 学生进入岗位仿真实训      （站场参数异常诊断）
+→ 完成异常诊断              （行为事件全程记录）
+→ 规则评分                  （Rubric，不经 LLM）
+→ 生成 AbilityEvidence      （统一能力证据）
+→ 更新 Ability Score        （EMA）
+→ 更新 Confidence           （置信度）
+→ 生成个性化补学            （证据驱动学习路径）
+→ 再次训练                  （验证能力提升）
+```
+
+评审操作建议（在线体验与本地部署均可）：
 
 1. 任意角色登录 → 侧边栏**比赛模式首页**：看主链与指标 → 展开"查看证据"看招聘快照原文与权威标准 → 点"进入对应实训"。
 2. **教师** → 专业群建设驾驶舱：群关系图下钻、课程能力矩阵、产业需求-供给-Gap、生成培养方案调整草案 → 审核发布。
@@ -356,14 +402,23 @@ npm run build
 6. **学生** → 岗位能力成长档案：查看 Growth XP / 证据档案时间线 / 各维置信度。
 7. **教师** → 班级教学实施复盘：逐题结果、班级短板、高频错题与课堂改进计划。
 
-## 十一、与既有文档
+## 安全与合规边界
 
-- API 说明：运行后访问 `/api/docs`（OpenAPI 交互文档）
+- 本系统是**职业教学与虚拟实训系统**，非真实生产/SCADA/DCS/控制/应急系统。
+- 不连接真实油气生产设备；不输出可直接用于真实现场的危险控制指令。
+- 所有压力/温度/流量/液位/设备状态/报警/趋势均为**教学模拟数据**；
+  仿真实训场景强制携带 `teaching_simulation` 标志与免责声明，前端三处常驻声明。
+- 岗位/任务映射为基于职业标准的教学化表达，不构成真实操作规程。
+- API Key 仅存后端环境变量，不进 Git、不发给前端、不写日志。
 
-## 十二、项目扩展方向
+## 扩展方向
 
 - 补齐油气田水处理、注输泵修理、天然气压缩机修理、LNG/CNG/LPG 库站等职业方向的知识与任务证据（P1-1 数据集按"可验证、可追溯、可复现"目标扩充）
 - 教师效果评估模块（AI 题库一次通过率、图谱审核通过率、培养建议采纳率、评分一致率、补学前后的提升——只展示真实数据）
 - 智能体 Workflow 可视化（业务流程状态：岗位证据采集 → 技能抽取 → 映射 → 分析 → 待审核）
 - 更多操作型实训场景（增加场景 JSON 配置即可扩展，无需新代码）
 - 多模态（图像/流程图识别）、高级学习路径图谱
+
+---
+
+*XA-202603 "揭榜挂帅"挑战赛参赛项目 · 油训智安项目团队*
