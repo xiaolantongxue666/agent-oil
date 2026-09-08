@@ -4,9 +4,22 @@
 .env
 backend/.env
 deploy.env
-agent-oil-images-*.tar
-agent-oil-app-*.tar
+*.tar
 *.7z
+# 本机构建产物与运行数据，容器镜像不需要（backend 仅需 data/knowledge 一个文件）
+docs/
+work/
+output/
+uploads/
+data/*
+!data/knowledge
+scripts/
+.chart-data-*
+.codex-finalizer/
+*.db.*
+*.bak*
+run_*.bat
+start_all.bat
 .venv
 backend/.venv
 frontend/node_modules
